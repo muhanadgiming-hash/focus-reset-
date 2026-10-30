@@ -1,0 +1,37 @@
+name: focus_reset
+description: "Focus Reset — digital wellbeing, productivity and life planning for iPhone."
+publish_to: "none"
+
+# version: <marketing version>+<build number>
+# Codemagic overrides the build number automatically on each build.
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.6.0
+  flutter: ">=3.27.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: any
+  shared_preferences: ^2.3.2
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  flutter_launcher_icons: ^0.14.1
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/
+
+flutter_launcher_icons:
+  ios: true
+  android: false
+  image_path: "assets/icon/app_icon.png"
+  remove_alpha_ios: true

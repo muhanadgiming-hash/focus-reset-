@@ -1,0 +1,101 @@
+# Codemagic CI/CD for Focus Reset (iOS).
+# Docs: https://docs.codemagic.io/yaml-quick-start/building-a-flutter-app/
+#
+# No secrets live in this file. Signing keys and the App Store Connect API key
+# are stored in Codemagic (Team settings → Integrations / Code signing).
+
+definitions:
+  env: &env
+    flutter: stable
+    xcode: latest
+    cocoapods: default
+    vars:
+      # Change to your own reverse-domain ID before Phase 6 and register it
+      # in developer.apple.com → Identifiers.
+      BUNDLE_ID: "com.focusreset.app"
+
+  scripts:
+    - &prepare_ios
+      name: Prepare iOS project
+      script: bash scripts/prepare_ios.sh
+    - &pub_get
+      name: Get packages
+      script: flutter pub get
+    - &app_icons
+      name: Generate app icons
+      script: dart run flutter_launcher_icons
+
+workflows:
+  # ---------------------------------------------------------------------------
+  # Phases 1–5: verifies every push compiles for iOS and all tests pass.
+  # Needs no Apple Developer account.
+  # ---------------------------------------------------------------------------
+  ios-verify:
+    name: iOS · Verify (no signing)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment: *env
+    triggering:
+      events:
+        - push
+        - pull_request
+      branch_patterns:
+        - pattern: "*"
+          include: true
+      cancel_previous_builds: true
+    scripts:
+      - *prepare_ios
+      - *pub_get
+      - *app_icons
+      - name: Static analysis
+        script: flutter analyze --no-fatal-infos
+      - name: Unit & widget tests
+        script: flutter test
+      - name: Build iOS (unsigned release)
+        script: flutter build ios --release --no-codesign
+    artifacts:
+      - build/ios/iphoneos/*.app
+      - "**/*.log"
+
+  # ---------------------------------------------------------------------------
+  # Phase 6: signed build uploaded to TestFlight / App Store Connect.
+  # Run manually once the Apple Developer account and the Codemagic
+  # App Store Connect integration (named below) are set up.
+  # ---------------------------------------------------------------------------
+  ios-release:
+    name: iOS · TestFlight release
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    integrations:
+      app_store_connect: Focus Reset ASC
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.focusreset.app
+      vars:
+        BUNDLE_ID: "com.focusreset.app"
+        # Numeric Apple ID of the app from App Store Connect → App Information.
+        APP_STORE_APPLE_ID: "0000000000"
+    scripts:
+      - *prepare_ios
+      - *pub_get
+      - *app_icons
+      - name: Tests
+        script: flutter test
+      - name: Apply signing profiles
+        script: xcode-project use-profiles
+      - name: Build IPA
+        script: |
+          LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" || echo 0)
+          flutter build ipa --release \
+            --build-number=$((LATEST + 1)) \
+            --export-options-plist=/Users/builder/export_options.plist
+    artifacts:
+      - build/ios/ipa/*.ipa
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
