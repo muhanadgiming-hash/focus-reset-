@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/app_controller.dart';
+import '../../app/planner_controller.dart';
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/app_palette.dart';
 import '../../core/theme/app_theme.dart';
@@ -15,7 +16,7 @@ import 'privacy_screen.dart';
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
-  static const appVersion = '0.1.0 (Phase 1)';
+  static const appVersion = '0.2.0 (Phase 2)';
 
   @override
   Widget build(BuildContext context) {
@@ -218,6 +219,7 @@ class SettingsScreen extends StatelessWidget {
 
   Future<void> _confirmDelete(BuildContext context) async {
     final app = AppScope.read(context);
+    final planner = PlannerScope.read(context);
     final navigator = Navigator.of(context);
     final ok = await showDialog<bool>(
       context: context,
@@ -232,6 +234,7 @@ class SettingsScreen extends StatelessWidget {
     );
     if (ok != true) return;
     navigator.popUntil((r) => r.isFirst);
+    await planner.clearAll();
     await app.deleteAllLocalData();
   }
 }

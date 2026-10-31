@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 
 import '../l10n/app_strings.dart';
 
@@ -46,6 +46,14 @@ abstract final class TimeUtils {
     final diff = (d.weekday - firstWeekday + 7) % 7;
     return d.subtract(Duration(days: diff));
   }
+
+  /// e.g. "Tue, Jan 2 · 9:30 AM", localised.
+  static String dayTime(BuildContext context, DateTime t) =>
+      '${DateFormat.MMMEd(context.localeTag).format(t)} · ${DateFormat.jm(context.localeTag).format(t)}';
+
+  /// "9:30 – 10:15 AM" for a range on one day.
+  static String range(BuildContext context, DateTime a, DateTime b) =>
+      '${DateFormat.jm(context.localeTag).format(a)} – ${DateFormat.jm(context.localeTag).format(b)}';
 
   static bool isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;

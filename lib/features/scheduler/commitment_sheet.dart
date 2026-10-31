@@ -1,61 +1,150 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
+import '../../app/planner_controller.dart';
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/app_palette.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/date_key.dart';
 import '../../core/widgets/controls.dart';
 import '../../core/widgets/sheet.dart';
 import '../../data/models/planning_models.dart';
+import 'block_style.dart';
+import 'plan_review.dart';
 
-IconData commitmentIcon(CommitmentType t) => switch (t) {
-      CommitmentType.workShift => Icons.work_outline_rounded,
-      CommitmentType.flight => Icons.flight_rounded,
-      CommitmentType.meeting => Icons.groups_outlined,
-      CommitmentType.appointment => Icons.event_outlined,
-      CommitmentType.commute => Icons.directions_car_outlined,
-      CommitmentType.family => Icons.family_restroom_rounded,
-      CommitmentType.personal => Icons.person_outline_rounded,
-    };
+/// "UTC+3", "UTC−4:30"…
+String utcOffsetLabel(int offsetMin) {
+  final sign = offsetMin < 0 ? '−' : '+';
+  final a = offsetMin.abs();
+  final h = a ~/ 60;
+  final m = a % 60;
+  return m == 0 ? 'UTC$sign$h' : 'UTC$sign$h:${m.toString().padLeft(2, '0')}';
+}
 
-/// Editor for a fixed commitment (shift, flight, meeting…). The full form is
-/// in place; persistence and re-planning arrive with the Phase 2 engine.
-Future<void> showCommitmentSheet(BuildContext context) {
+/// Common UTC offsets in minutes.
+const List<int> kUtcOffsets = [
+  -600, -540, -480, -420, -360, -300, -240, -180, -120, -60, 0, 60, 120, 180, 210, 240, 270, 300, 330, 345, 360,
+  420, 480, 540, 570, 600, 660, 720,
+];
+
+/// Converts a wall-clock time in a given UTC offset (or device time when
+/// null) to an absolute local DateTime.
+DateTime wallToInstant(DateTime date, int minutes, int? utcOffsetMin) {
+  if (utcOffsetMin == null) return DateTime(date.year, date.month, date.day, 0, minutes);
+  return DateTime.utc(date.year, date.month, date.day, 0, minutes).subtract(Duration(minutes: utcOffsetMin)).toLocal();
+}
+
+/// The wall-clock time of [t] in the given offset (or device time).
+DateTime instantToWall(DateTime t, int? utcOffsetMin) {
+  if (utcOffsetMin == null) return t.toLocal();
+  final w = t.toUtc().add(Duration(minutes: utcOffsetMin));
+  return DateTime(w.year, w.month, w.day, w.hour, w.minute);
+}
+
+/// Add or edit a fixed commitment (shift, flight, meeting…). After saving,
+/// the user can review how flexible tasks would move around it.
+Future<void> showCommitmentSheet(BuildContext context, {Commitment? initial, DateTime? day}) {
+  final key = GlobalKey<_CommitmentFormState>();
   return showEditorSheet<void>(
     context,
-    title: context.tr('commitment.new'),
+    title: context.tr(initial == null ? 'commitment.new' : 'commitment.edit'),
     actionLabel: context.tr('common.save'),
-    bodyBuilder: (_) => const _CommitmentForm(),
+    bodyBuilder: (_) => _CommitmentForm(key: key, initial: initial, day: day, hostContext: context),
     onAction: (sheetContext) {
-      Navigator.of(sheetContext).pop();
-      showPhaseNotice(context, 2);
+      if (key.currentState?.submit() ?? false) Navigator.of(sheetContext).pop();
     },
   );
 }
 
 class _CommitmentForm extends StatefulWidget {
-  const _CommitmentForm();
+  const _CommitmentForm({super.key, this.initial, this.day, required this.hostContext});
+
+  final Commitment? initial;
+  final DateTime? day;
+  final BuildContext hostContext;
 
   @override
   State<_CommitmentForm> createState() => _CommitmentFormState();
 }
 
 class _CommitmentFormState extends State<_CommitmentForm> {
-  CommitmentType _type = CommitmentType.workShift;
-  DateTime _date = DateTime.now();
-  int _start = 9 * 60;
-  int _end = 17 * 60;
-  int _prep = 30;
-  int _travel = 30;
-  bool _fixed = true;
-  final _title = TextEditingController();
-  final _tz = TextEditingController();
+  late CommitmentType _type;
+  late DateTime _date;
+  late int _start;
+  late int _end;
+  late int _prep;
+  late int _travel;
+  late int _rest;
+  int? _offset;
+  late final TextEditingController _title;
+  bool _showError = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final c = widget.initial;
+    _title = TextEditingController(text: c?.title ?? '');
+    _type = c?.type ?? CommitmentType.workShift;
+    _offset = c?.utcOffsetMin;
+    _prep = c?.prepMin ?? 30;
+    _travel = c?.travelMin ?? 30;
+    _rest = c?.restAfterMin ?? 0;
+    if (c != null) {
+      final ws = instantToWall(c.start, _offset);
+      final we = instantToWall(c.end, _offset);
+      _date = dateOnly(ws);
+      _start = ws.hour * 60 + ws.minute;
+      _end = we.hour * 60 + we.minute;
+    } else {
+      _date = dateOnly(widget.day ?? DateTime.now());
+      _start = 9 * 60;
+      _end = 17 * 60;
+    }
+  }
 
   @override
   void dispose() {
     _title.dispose();
-    _tz.dispose();
     super.dispose();
+  }
+
+  bool submit() {
+    final title = _title.text.trim();
+    if (title.isEmpty) {
+      setState(() => _showError = true);
+      return false;
+    }
+    final start = wallToInstant(_date, _start, _offset);
+    // An end time at or before the start means the next day (overnight).
+    final endDate = _end <= _start ? addDays(_date, 1) : _date;
+    final end = wallToInstant(endDate, _end, _offset);
+
+    final c = Commitment(
+      id: widget.initial?.id ?? PlannerController.newId(),
+      type: _type,
+      title: title,
+      start: start,
+      end: end,
+      utcOffsetMin: _offset,
+      prepMin: _prep,
+      travelMin: _travel,
+      restAfterMin: _rest,
+    );
+    PlannerScope.read(context).saveCommitment(c);
+
+    final host = widget.hostContext;
+    ScaffoldMessenger.of(host)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(context.tr('commitment.saved')),
+        action: SnackBarAction(
+          label: context.tr('commitment.reviewPlan'),
+          onPressed: () {
+            if (host.mounted) reviewPlan(host);
+          },
+        ),
+      ));
+    return true;
   }
 
   Future<void> _pickDate() async {
@@ -63,7 +152,7 @@ class _CommitmentFormState extends State<_CommitmentForm> {
     final picked = await showDatePicker(
       context: context,
       initialDate: _date,
-      firstDate: now.subtract(const Duration(days: 30)),
+      firstDate: now.subtract(const Duration(days: 60)),
       lastDate: now.add(const Duration(days: 365)),
     );
     if (picked != null) setState(() => _date = picked);
@@ -72,6 +161,10 @@ class _CommitmentFormState extends State<_CommitmentForm> {
   @override
   Widget build(BuildContext context) {
     final p = context.palette;
+    final tag = context.localeTag;
+    final previewStart = wallToInstant(_date, _start, _offset);
+    final previewEnd = wallToInstant(_end <= _start ? addDays(_date, 1) : _date, _end, _offset);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -85,61 +178,95 @@ class _CommitmentFormState extends State<_CommitmentForm> {
                 label: context.tr('commitment.${t.name}'),
                 icon: commitmentIcon(t),
                 selected: _type == t,
-                onTap: () => setState(() => _type = t),
+                onTap: () => setState(() {
+                  _type = t;
+                  if (t == CommitmentType.flight && widget.initial == null) {
+                    _prep = 90;
+                    _rest = 120;
+                  }
+                }),
               ),
           ],
         ),
         FieldLabel(context.tr('commitment.title')),
         TextField(
           controller: _title,
+          onChanged: (_) {
+            if (_showError) setState(() => _showError = false);
+          },
           decoration: InputDecoration(
             hintText: context.tr(_type == CommitmentType.flight ? 'commitment.flightHint' : 'commitment.titleHint'),
+            errorText: _showError ? context.tr('tasks.titleRequired') : null,
           ),
         ),
         FieldLabel(context.tr('commitment.when')),
-        GestureDetector(
-          onTap: _pickDate,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: 14),
-            decoration: BoxDecoration(color: p.surface, borderRadius: BorderRadius.circular(Radii.md)),
-            child: Row(
-              children: [
-                Icon(Icons.calendar_today_outlined, size: 20, color: p.textSecondary),
-                const SizedBox(width: Space.md),
-                Expanded(child: Text(context.tr('commitment.date'), style: context.text.bodyLarge)),
-                Text(DateFormat.yMMMEd(context.localeTag).format(_date), style: context.text.labelLarge),
-              ],
-            ),
+        GroupBox(children: [
+          TapRow(
+            icon: Icons.calendar_today_outlined,
+            label: context.tr('commitment.date'),
+            value: DateFormat.yMMMEd(tag).format(_date),
+            onTap: _pickDate,
           ),
-        ),
+          MenuRow<int>(
+            icon: Icons.public_rounded,
+            label: context.tr('commitment.timezone'),
+            value: _offset ?? -99999,
+            options: {
+              -99999: context.tr('commitment.deviceTime'),
+              for (final o in kUtcOffsets) o: utcOffsetLabel(o),
+            },
+            onChanged: (v) => setState(() => _offset = v == -99999 ? null : v),
+          ),
+        ]),
         const SizedBox(height: Space.sm),
         TimeField(label: context.tr('commitment.start'), minutes: _start, onChanged: (v) => setState(() => _start = v)),
         const SizedBox(height: Space.sm),
         TimeField(label: context.tr('commitment.end'), minutes: _end, onChanged: (v) => setState(() => _end = v)),
-        if (_end <= _start)
-          Padding(
-            padding: const EdgeInsetsDirectional.only(start: 4, top: Space.sm),
-            child: Text(context.tr('commitment.overnight'), style: context.text.bodySmall?.copyWith(color: p.accent)),
+        Padding(
+          padding: const EdgeInsetsDirectional.only(start: 4, top: Space.sm),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_end <= _start)
+                Text(context.tr('commitment.overnight'), style: context.text.bodySmall?.copyWith(color: p.accent)),
+              if (_offset != null)
+                Text(
+                  context.tr('commitment.localPreview', {
+                    't': '${DateFormat.MMMEd(tag).add_jm().format(previewStart)} – ${DateFormat.MMMEd(tag).add_jm().format(previewEnd)}',
+                  }),
+                  style: context.text.bodySmall,
+                ),
+            ],
           ),
-        FieldLabel(context.tr('commitment.timezone')),
-        TextField(
-          controller: _tz,
-          textDirection: TextDirection.ltr,
-          decoration: InputDecoration(hintText: context.tr('commitment.timezoneHint')),
         ),
         FieldLabel(context.tr('commitment.prep')),
-        _MinuteChips(values: const [0, 15, 30, 45, 60, 90], value: _prep, onChanged: (v) => setState(() => _prep = v)),
+        _MinuteChips(values: const [0, 15, 30, 45, 60, 90, 120], value: _prep, onChanged: (v) => setState(() => _prep = v)),
         FieldLabel(context.tr('commitment.travel')),
         _MinuteChips(values: const [0, 15, 30, 45, 60, 90], value: _travel, onChanged: (v) => setState(() => _travel = v)),
-        const SizedBox(height: Space.lg),
-        GroupBox(children: [
-          SwitchRow(
-            label: context.tr('commitment.fixed'),
-            subtitle: context.tr('commitment.fixedSub'),
-            value: _fixed,
-            onChanged: (v) => setState(() => _fixed = v),
+        FieldLabel(context.tr('commitment.rest')),
+        _MinuteChips(values: const [0, 30, 60, 120, 240, 480], value: _rest, onChanged: (v) => setState(() => _rest = v)),
+        Padding(
+          padding: const EdgeInsetsDirectional.only(start: 4, top: Space.md),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.lock_outline_rounded, size: 16, color: p.textSecondary),
+              const SizedBox(width: Space.sm),
+              Expanded(child: Text(context.tr('commitment.fixedSub'), style: context.text.bodySmall)),
+            ],
           ),
-        ]),
+        ),
+        if (widget.initial != null) ...[
+          const SizedBox(height: Space.xl),
+          AppButton(
+            label: context.tr('common.delete'),
+            tone: ButtonTone.destructive,
+            onPressed: () {
+              PlannerScope.read(context).deleteCommitment(widget.initial!.id);
+              Navigator.of(context).pop();
+            },
+          ),
+        ],
       ],
     );
   }
@@ -154,13 +281,18 @@ class _MinuteChips extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final all = {...values, value}.toList()..sort();
     return Wrap(
       spacing: Space.sm,
       runSpacing: Space.sm,
       children: [
-        for (final m in values)
+        for (final m in all)
           ChoiceChipX(
-            label: m == 0 ? context.tr('common.none') : context.tr('unit.minutesShort', {'m': '$m'}),
+            label: m == 0
+                ? context.tr('common.none')
+                : (m >= 60 && m % 60 == 0
+                    ? context.tr('unit.hoursShort', {'h': '${m ~/ 60}'})
+                    : context.tr('unit.minutesShort', {'m': '$m'})),
             selected: value == m,
             onTap: () => onChanged(m),
           ),

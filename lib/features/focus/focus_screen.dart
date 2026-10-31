@@ -5,19 +5,21 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../app/app_controller.dart';
+import '../../app/planner_controller.dart';
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/app_palette.dart';
 import '../../core/theme/app_theme.dart';
 import '../../core/utils/time_utils.dart';
 import '../../core/widgets/charts.dart';
 import '../../core/widgets/controls.dart';
+import '../../core/widgets/sheet.dart';
 import '../../core/widgets/surfaces.dart';
 import '../../data/models/planning_models.dart';
 
 enum FocusPhase { focus, rest }
 
-/// Focus timer. Fully working in Phase 1; sessions are kept for the current
-/// app run and gain persistent history in Phase 2.
+/// Focus timer. Every session (finished or ended early) is saved to the
+/// history and can be linked to a task.
 ///
 /// The countdown is computed from a wall-clock end time, so it stays accurate
 /// when the app is backgrounded or the tab is switched.
@@ -36,7 +38,7 @@ class _FocusScreenState extends State<FocusScreen> {
   Duration? _pausedRemaining;
   DateTime? _sessionStart;
   Timer? _ticker;
-  final List<FocusSession> _sessions = [];
+  String? _taskId;
 
   bool get _running => _endsAt != null;
   bool get _paused => _pausedRemaining != null;
@@ -92,10 +94,14 @@ class _FocusScreenState extends State<FocusScreen> {
     if (_phase == FocusPhase.focus && _sessionStart != null) {
       final spent = DateTime.now().difference(_sessionStart!).inMinutes;
       if (spent >= 1) {
-        _sessions.insert(
-          0,
-          FocusSession(start: _sessionStart!, plannedMin: _focusMin!, actualMin: spent, completed: false),
-        );
+        PlannerScope.read(context).addFocusSession(FocusSession(
+          id: PlannerController.newId(),
+          start: _sessionStart!,
+          plannedMin: _focusMin!,
+          actualMin: spent,
+          taskId: _taskId,
+          completed: false,
+        ));
       }
     }
     setState(() {
@@ -119,10 +125,13 @@ class _FocusScreenState extends State<FocusScreen> {
     HapticFeedback.heavyImpact();
     setState(() {
       if (_phase == FocusPhase.focus) {
-        _sessions.insert(
-          0,
-          FocusSession(start: _sessionStart ?? DateTime.now(), plannedMin: _focusMin!, actualMin: _focusMin!),
-        );
+        PlannerScope.read(context).addFocusSession(FocusSession(
+          id: PlannerController.newId(),
+          start: _sessionStart ?? DateTime.now().subtract(Duration(minutes: _focusMin!)),
+          plannedMin: _focusMin!,
+          actualMin: _focusMin!,
+          taskId: _taskId,
+        ));
         _phase = FocusPhase.rest;
       } else {
         _phase = FocusPhase.focus;
@@ -138,6 +147,22 @@ class _FocusScreenState extends State<FocusScreen> {
     setState(() => _phase = phase);
   }
 
+  Future<void> _pickTask() async {
+    final planner = PlannerScope.read(context);
+    final open = planner.tasks.where((t) => !t.isDone).toList()
+      ..sort((a, b) => (a.scheduledStart ?? DateTime(9999)).compareTo(b.scheduledStart ?? DateTime(9999)));
+    final picked = await showActionSheet<String>(
+      context,
+      title: context.tr('focus.linkTask'),
+      actions: [
+        (Icons.link_off_rounded, context.tr('common.none'), '', false),
+        for (final t in open.take(12)) (Icons.check_circle_outline_rounded, t.title, t.id, false),
+      ],
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _taskId = picked.isEmpty ? null : picked);
+  }
+
   String _mmss(Duration d) {
     final m = d.inMinutes.toString().padLeft(2, '0');
     final s = (d.inSeconds % 60).toString().padLeft(2, '0');
@@ -150,9 +175,10 @@ class _FocusScreenState extends State<FocusScreen> {
     final color = _phase == FocusPhase.focus ? p.focus : p.accent;
     final total = Duration(minutes: _phaseMinutes).inSeconds;
     final progress = total == 0 ? 0.0 : 1 - _remaining.inSeconds / total;
-    final focusedToday = _sessions
-        .where((s) => TimeUtils.isSameDay(s.start, DateTime.now()))
-        .fold<int>(0, (sum, s) => sum + s.actualMin);
+    final planner = PlannerScope.of(context);
+    final linked = planner.taskById(_taskId);
+    final todaySessions = planner.focusSessions.where((s) => TimeUtils.isSameDay(s.start, DateTime.now())).toList();
+    final focusedToday = todaySessions.fold<int>(0, (sum, s) => sum + s.actualMin);
 
     return PageScaffold(
       title: context.tr('focus.title'),
@@ -239,13 +265,25 @@ class _FocusScreenState extends State<FocusScreen> {
         ),
         const SizedBox(height: Space.md),
         AppCard(
-          onTap: () => showPhaseNotice(context, 2),
+          onTap: _pickTask,
           child: Row(
             children: [
-              IconBadge(icon: Icons.link_rounded, color: p.textSecondary, background: p.surfaceAlt),
+              IconBadge(
+                icon: Icons.link_rounded,
+                color: linked == null ? p.textSecondary : p.focus,
+                background: linked == null ? p.surfaceAlt : p.focusSoft,
+              ),
               const SizedBox(width: Space.md),
               Expanded(child: Text(context.tr('focus.linkTask'), style: context.text.bodyLarge)),
-              Text(context.tr('common.none'), style: context.text.bodyMedium?.copyWith(color: p.textSecondary)),
+              Flexible(
+                child: Text(
+                  linked?.title ?? context.tr('common.none'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: context.text.bodyMedium?.copyWith(color: linked == null ? p.textSecondary : p.focus),
+                ),
+              ),
             ],
           ),
         ),
@@ -273,12 +311,12 @@ class _FocusScreenState extends State<FocusScreen> {
         AppCard(
           child: Row(
             children: [
-              Expanded(child: StatTile(value: '${_sessions.where((s) => s.completed).length}', label: context.tr('focus.sessions'), color: p.focus)),
+              Expanded(child: StatTile(value: '${todaySessions.where((s) => s.completed).length}', label: context.tr('focus.sessions'), color: p.focus)),
               Expanded(child: StatTile(value: TimeUtils.duration(context, focusedToday), label: context.tr('focus.focused'))),
             ],
           ),
         ),
-        if (_sessions.isEmpty)
+        if (todaySessions.isEmpty)
           AppCard(
             child: EmptyState(
               icon: Icons.history_rounded,
@@ -292,7 +330,7 @@ class _FocusScreenState extends State<FocusScreen> {
             padding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.sm),
             child: Column(
               children: [
-                for (final s in _sessions)
+                for (final s in todaySessions)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: Space.sm),
                     child: Row(
@@ -304,9 +342,18 @@ class _FocusScreenState extends State<FocusScreen> {
                         ),
                         const SizedBox(width: Space.md),
                         Expanded(
-                          child: Text(
-                            DateFormat.jm(context.localeTag).format(s.start),
-                            style: context.text.bodyLarge,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(DateFormat.jm(context.localeTag).format(s.start), style: context.text.bodyLarge),
+                              if (planner.taskById(s.taskId) != null)
+                                Text(
+                                  planner.taskById(s.taskId)!.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: context.text.bodySmall,
+                                ),
+                            ],
                           ),
                         ),
                         Text(TimeUtils.duration(context, s.actualMin), style: context.text.labelLarge),

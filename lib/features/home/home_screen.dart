@@ -1,18 +1,24 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../app/app_controller.dart';
+import '../../app/planner_controller.dart';
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/app_palette.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/date_key.dart';
 import '../../core/utils/time_utils.dart';
 import '../../core/widgets/charts.dart';
 import '../../core/widgets/surfaces.dart';
-import '../../domain/scheduling/fixed_blocks.dart';
+import '../../domain/habits/habit_logic.dart';
+import '../../domain/scheduling/day_agenda.dart';
 import '../progress/progress_screen.dart';
+import '../scheduler/block_style.dart';
+import '../scheduler/smart_scheduler_view.dart' show openAgendaItem;
 import '../settings/settings_screen.dart';
 import '../shell/main_shell.dart';
 import '../sleep/sleep_screen.dart';
+import '../tasks/task_widgets.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -27,17 +33,50 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final profile = AppScope.of(context).profile;
     if (profile == null) return const SizedBox.shrink();
+    final planner = PlannerScope.of(context);
 
     final p = context.palette;
     final now = DateTime.now();
+    final today = dateOnly(now);
+    final tomorrow = addDays(today, 1);
     final nowMin = now.hour * 60 + now.minute;
     final dateLabel = DateFormat.MMMMEEEEd(context.localeTag).format(now);
     final shell = ShellScope.maybeOf(context);
 
-    final blocks = FixedBlocks.forDay(profile, now);
-    final upcoming = blocks.where((b) => b.endMin > nowMin && b.kind != BlockKind.commute).toList();
-    final next = upcoming.isEmpty ? null : upcoming.first;
+    // Today's numbers — from the user's own records only.
+    final plannedToday = planner.tasks.where((t) {
+      final s = t.scheduledStart;
+      final c = t.completedAt;
+      return (s != null && !s.isBefore(today) && s.isBefore(tomorrow)) ||
+          (t.isDone && c != null && !c.isBefore(today));
+    }).toList();
+    final doneToday = plannedToday.where((t) => t.isDone).length;
+    final focusToday = planner.focusSessions
+        .where((s) => !s.start.isBefore(today))
+        .fold<int>(0, (a, s) => a + s.actualMin);
+    final habitsDue = planner.habits.where((h) => HabitLogic.isScheduledOn(h, today)).toList();
+    final habitsDone = habitsDue.where((h) => HabitLogic.doneOn(h, planner.habitLog(h.id), today)).length;
+    final overall = [
+      if (plannedToday.isNotEmpty) doneToday / plannedToday.length,
+      if (profile.dailyFocusGoalMin > 0) (focusToday / profile.dailyFocusGoalMin).clamp(0.0, 1.0).toDouble(),
+      if (habitsDue.isNotEmpty) habitsDone / habitsDue.length,
+    ];
+    final ring = (overall.isEmpty || (plannedToday.isEmpty && focusToday == 0 && habitsDone == 0))
+        ? null
+        : overall.reduce((a, b) => a + b) / overall.length;
+
+    final agenda = DayAgenda.build(
+      profile: profile,
+      commitments: planner.commitments,
+      tasks: planner.tasks,
+      day: today,
+    );
+    final upcoming = agenda
+        .where((i) => i.endMin > nowMin && i.kind != AgendaKind.sleep && i.kind != AgendaKind.commute && !i.done)
+        .take(4)
+        .toList();
     final untilBed = (profile.bedtimeMin - nowMin + 1440) % 1440;
+    final waiting = planner.tasks.where((t) => !t.isDone && t.scheduledStart == null).length;
 
     return PageScaffold(
       subtitle: dateLabel,
@@ -56,16 +95,15 @@ class HomeScreen extends StatelessWidget {
         ),
       ],
       children: [
-        // Today summary — real counts; zero until the user creates items.
         AppCard(
           padding: const EdgeInsets.all(Space.xl),
           child: Row(
             children: [
               ProgressRing(
-                value: null,
+                value: ring,
                 color: p.accent,
                 size: 92,
-                center: Text('—', style: context.text.titleLarge),
+                center: Text(ring == null ? '—' : '${(ring * 100).round()}%', style: context.text.titleLarge),
               ),
               const SizedBox(width: Space.xl),
               Expanded(
@@ -76,16 +114,28 @@ class HomeScreen extends StatelessWidget {
                     const SizedBox(height: Space.md),
                     Row(
                       children: [
-                        Expanded(child: StatTile(value: '0', label: context.tr('home.tasksDone'))),
                         Expanded(
                           child: StatTile(
-                            value: '0/${profile.dailyFocusGoalMin}',
+                            value: '$doneToday/${plannedToday.length}',
+                            label: context.tr('home.tasksDone'),
+                          ),
+                        ),
+                        Expanded(
+                          child: StatTile(
+                            value: '$focusToday/${profile.dailyFocusGoalMin}',
                             label: context.tr('home.focusMin'),
                             color: p.focus,
                           ),
                         ),
                       ],
                     ),
+                    if (habitsDue.isNotEmpty) ...[
+                      const SizedBox(height: Space.sm),
+                      Text(
+                        context.tr('home.habitsLine', {'n': '$habitsDone', 'total': '${habitsDue.length}'}),
+                        style: context.text.bodySmall?.copyWith(color: p.habit),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -99,16 +149,35 @@ class HomeScreen extends StatelessWidget {
           onAction: () => shell?.select(AppTab.plan),
         ),
         AppCard(
-          child: next == null
+          padding: upcoming.isEmpty
+              ? const EdgeInsets.all(Space.lg)
+              : const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.sm),
+          child: upcoming.isEmpty
               ? EmptyState(
                   icon: Icons.event_available_rounded,
                   title: context.tr('home.clearTitle'),
                   message: context.tr('home.clearBody'),
                   actionLabel: context.tr('home.addTask'),
-                  onAction: () => shell?.select(AppTab.tasks),
+                  onAction: () => showTaskEditor(context),
                 )
-              : _BlockRow(block: next),
+              : Column(
+                  children: [
+                    for (final i in upcoming) _AgendaRow(item: i, isNow: i.startMin <= nowMin),
+                  ],
+                ),
         ),
+        if (waiting > 0)
+          AppCard(
+            onTap: () => shell?.select(AppTab.plan),
+            child: Row(
+              children: [
+                IconBadge(icon: Icons.inbox_outlined, color: p.habit, background: p.habitSoft),
+                const SizedBox(width: Space.md),
+                Expanded(child: Text(context.tr('home.waiting', {'n': '$waiting'}), style: context.text.bodyMedium)),
+                const ForwardChevron(),
+              ],
+            ),
+          ),
 
         SectionHeader(context.tr('home.tonight')),
         AppCard(
@@ -159,7 +228,7 @@ class HomeScreen extends StatelessWidget {
               color: p.accent,
               soft: p.accentSoft,
               label: context.tr('home.qaTask'),
-              onTap: () => shell?.select(AppTab.tasks),
+              onTap: () => showTaskEditor(context),
             ),
             _QuickAction(
               icon: Icons.view_week_rounded,
@@ -182,38 +251,43 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-class _BlockRow extends StatelessWidget {
-  const _BlockRow({required this.block});
+class _AgendaRow extends StatelessWidget {
+  const _AgendaRow({required this.item, required this.isNow});
 
-  final TimeBlock block;
+  final AgendaItem item;
+  final bool isNow;
 
   @override
   Widget build(BuildContext context) {
-    final p = context.palette;
-    final (icon, color, soft, key) = switch (block.kind) {
-      BlockKind.sleep => (Icons.bedtime_rounded, p.sleep, p.sleepSoft, 'block.sleep'),
-      BlockKind.work => (Icons.work_rounded, p.work, p.workSoft, 'block.work'),
-      BlockKind.commute => (Icons.directions_car_rounded, p.textSecondary, p.surfaceAlt, 'block.commute'),
-    };
-    return Row(
-      children: [
-        IconBadge(icon: icon, color: color, background: soft, size: 44),
-        const SizedBox(width: Space.lg),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(context.tr(key), style: context.text.titleSmall),
-              const SizedBox(height: 2),
-              Text(
-                '${TimeUtils.clock(context, block.startMin)} – ${TimeUtils.clock(context, block.endMin % 1440)}',
-                style: context.text.bodySmall,
+    final s = AgendaStyle.of(context, item);
+    return InkWell(
+      onTap: () => openAgendaItem(context, item),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: Space.sm),
+        child: Row(
+          children: [
+            IconBadge(icon: s.icon, color: s.color, background: s.soft, size: 40),
+            const SizedBox(width: Space.md),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(s.label, style: context.text.titleSmall, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${TimeUtils.clock(context, item.startMin)} – ${TimeUtils.clock(context, item.endMin % 1440)}',
+                    style: context.text.bodySmall,
+                  ),
+                ],
               ),
-            ],
-          ),
+            ),
+            if (isNow)
+              StatusPill(context.tr('home.now'), color: s.color, background: s.soft)
+            else if (item.kind != AgendaKind.task)
+              StatusPill(context.tr('block.fixed')),
+          ],
         ),
-        StatusPill(context.tr('block.fixed')),
-      ],
+      ),
     );
   }
 }

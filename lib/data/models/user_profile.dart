@@ -186,3 +186,21 @@ class UserProfile {
     );
   }
 }
+
+/// Maps a clock hour (0–23) to a part of the day.
+DayPart dayPartOfHour(int hour) {
+  if (hour >= 5 && hour < 12) return DayPart.morning;
+  if (hour >= 12 && hour < 17) return DayPart.afternoon;
+  if (hour >= 17 && hour < 21) return DayPart.evening;
+  return DayPart.night;
+}
+
+/// Working days used for "every working day" repeats. Falls back to the
+/// regional work week implied by the user's first weekday.
+Set<int> effectiveWorkDays(UserProfile? p) {
+  if (p != null && p.workDays.isNotEmpty) return p.workDays;
+  if (p != null && p.firstWeekday == DateTime.monday) {
+    return const {DateTime.monday, DateTime.tuesday, DateTime.wednesday, DateTime.thursday, DateTime.friday};
+  }
+  return const {DateTime.sunday, DateTime.monday, DateTime.tuesday, DateTime.wednesday, DateTime.thursday};
+}

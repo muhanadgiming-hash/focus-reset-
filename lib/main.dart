@@ -4,6 +4,8 @@ import 'package:intl/date_symbol_data_local.dart';
 
 import 'app/app.dart';
 import 'app/app_controller.dart';
+import 'app/planner_controller.dart';
+import 'data/repositories/planner_repository.dart';
 import 'data/repositories/profile_repository.dart';
 import 'data/services/preferences_service.dart';
 
@@ -17,7 +19,8 @@ Future<void> main() async {
     prefs: prefs,
     profiles: LocalProfileRepository(prefs),
   );
-  await controller.load();
+  final planner = PlannerController(repository: LocalPlannerRepository(prefs));
+  await Future.wait([controller.load(), planner.load()]);
 
-  runApp(FocusResetApp(controller: controller));
+  runApp(FocusResetApp(controller: controller, planner: planner));
 }

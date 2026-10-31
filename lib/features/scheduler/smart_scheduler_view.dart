@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../app/app_controller.dart';
+import '../../app/planner_controller.dart';
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/app_palette.dart';
 import '../../core/theme/app_theme.dart';
@@ -9,8 +10,28 @@ import '../../core/utils/time_utils.dart';
 import '../../core/widgets/charts.dart';
 import '../../core/widgets/controls.dart';
 import '../../core/widgets/surfaces.dart';
-import '../../domain/scheduling/fixed_blocks.dart';
+import '../../domain/scheduling/day_agenda.dart';
+import '../tasks/task_widgets.dart';
 import 'block_style.dart';
+import 'commitment_sheet.dart';
+import 'plan_review.dart';
+
+/// Opens the right editor for a tapped timeline item.
+void openAgendaItem(BuildContext context, AgendaItem item) {
+  final planner = PlannerScope.read(context);
+  switch (item.kind) {
+    case AgendaKind.task:
+      final t = planner.taskById(item.refId);
+      if (t != null) showTaskActions(context, t);
+    case AgendaKind.commitment:
+    case AgendaKind.commute:
+      final c = planner.commitmentById(item.refId);
+      if (c != null) showCommitmentSheet(context, initial: c);
+    case AgendaKind.sleep:
+    case AgendaKind.work:
+      break;
+  }
+}
 
 class SmartSchedulerView extends StatefulWidget {
   const SmartSchedulerView({super.key});
@@ -26,11 +47,19 @@ class _SmartSchedulerViewState extends State<SmartSchedulerView> {
   Widget build(BuildContext context) {
     final profile = AppScope.of(context).profile;
     if (profile == null) return const SizedBox.shrink();
+    final planner = PlannerScope.of(context);
     final p = context.palette;
 
-    final blocks = FixedBlocks.forDay(profile, _day);
-    final protectedMin = FixedBlocks.protectedMinutes(blocks);
-    final freeMin = TimeUtils.minutesPerDay - protectedMin;
+    final items = DayAgenda.build(
+      profile: profile,
+      commitments: planner.commitments,
+      tasks: planner.tasks,
+      day: _day,
+    );
+    final protectedMin = DayAgenda.protectedMinutes(items);
+    final taskMin = items.where((i) => i.kind == AgendaKind.task).fold<int>(0, (a, i) => a + i.lengthMin);
+    final freeMin = (TimeUtils.minutesPerDay - protectedMin - taskMin).clamp(0, TimeUtils.minutesPerDay).toInt();
+    final waiting = planner.tasks.where((t) => !t.isDone && t.scheduledStart == null).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -47,13 +76,17 @@ class _SmartSchedulerViewState extends State<SmartSchedulerView> {
                   color: p.sleep,
                 ),
               ),
-              Container(width: 0.5, height: 36, color: p.separator),
-              const SizedBox(width: Space.lg),
+              Expanded(
+                child: StatTile(
+                  value: TimeUtils.duration(context, taskMin),
+                  label: context.tr('smart.planned'),
+                  color: p.accent,
+                ),
+              ),
               Expanded(
                 child: StatTile(
                   value: TimeUtils.duration(context, freeMin),
                   label: context.tr('smart.available'),
-                  color: p.accent,
                 ),
               ),
             ],
@@ -61,24 +94,36 @@ class _SmartSchedulerViewState extends State<SmartSchedulerView> {
         ),
         AppCard(
           padding: const EdgeInsets.fromLTRB(Space.md, Space.lg, Space.lg, Space.lg),
-          child: DayTimeline(blocks: blocks),
+          child: DayTimeline(
+            items: items,
+            showNow: TimeUtils.isSameDay(_day, DateTime.now()),
+            onTap: (i) => openAgendaItem(context, i),
+          ),
         ),
         AppButton(
           label: context.tr('smart.generate'),
           icon: Icons.auto_fix_high_rounded,
-          onPressed: () => showPhaseNotice(context, 2),
+          onPressed: () => reviewPlan(context),
         ),
-        Padding(
-          padding: const EdgeInsets.only(top: Space.sm),
-          child: Text(context.tr('smart.generateNote'), style: context.text.bodySmall, textAlign: TextAlign.center),
+        const SizedBox(height: Space.sm),
+        AppButton(
+          label: context.tr('smart.reshuffle'),
+          tone: ButtonTone.plain,
+          onPressed: () => reviewPlan(context, reshuffle: true),
         ),
+        Text(context.tr('smart.generateNote'), style: context.text.bodySmall, textAlign: TextAlign.center),
         SectionHeader(context.tr('smart.unscheduled')),
         AppCard(
-          child: EmptyState(
-            icon: Icons.inbox_outlined,
-            title: context.tr('smart.unscheduledEmpty'),
-            message: context.tr('smart.unscheduledBody'),
-          ),
+          padding: waiting.isEmpty
+              ? const EdgeInsets.all(Space.lg)
+              : const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.xs),
+          child: waiting.isEmpty
+              ? EmptyState(
+                  icon: Icons.inbox_outlined,
+                  title: context.tr('smart.unscheduledEmpty'),
+                  message: context.tr('smart.unscheduledBody'),
+                )
+              : Column(children: [for (final t in waiting) TaskTile(task: t)]),
         ),
         SectionHeader(context.tr('smart.rulesTitle')),
         AppCard(
@@ -139,7 +184,7 @@ class _DayStrip extends StatelessWidget {
         itemCount: 14,
         separatorBuilder: (_, __) => const SizedBox(width: Space.sm),
         itemBuilder: (context, i) {
-          final d = today.add(Duration(days: i));
+          final d = DateTime(today.year, today.month, today.day + i);
           final isSel = TimeUtils.isSameDay(d, selected);
           return GestureDetector(
             onTap: () => onSelect(d),
@@ -172,12 +217,14 @@ class _DayStrip extends StatelessWidget {
   }
 }
 
-/// Vertical 24-hour timeline with positioned blocks. Mirrors in RTL.
+/// Vertical 24-hour timeline with positioned items. Mirrors in RTL.
 class DayTimeline extends StatelessWidget {
-  const DayTimeline({super.key, required this.blocks, this.hourHeight = 40});
+  const DayTimeline({super.key, required this.items, this.hourHeight = 44, this.showNow = true, this.onTap});
 
-  final List<TimeBlock> blocks;
+  final List<AgendaItem> items;
   final double hourHeight;
+  final bool showNow;
+  final ValueChanged<AgendaItem>? onTap;
 
   static const double _labelWidth = 52;
 
@@ -187,6 +234,9 @@ class DayTimeline extends StatelessWidget {
     final now = DateTime.now();
     final nowMin = now.hour * 60 + now.minute;
     final total = hourHeight * 24;
+
+    // Background items first, then commitments, then tasks on top.
+    final ordered = [...items]..sort((a, b) => a.kind.index.compareTo(b.kind.index));
 
     return SizedBox(
       height: total,
@@ -215,62 +265,79 @@ class DayTimeline extends StatelessWidget {
                 ],
               ),
             ),
-          for (final b in blocks)
+          for (final it in ordered)
             PositionedDirectional(
-              top: b.startMin / 60 * hourHeight + 1,
-              height: (b.lengthMin / 60 * hourHeight - 2).clamp(6.0, total),
-              start: _labelWidth + 4,
+              top: it.startMin / 60 * hourHeight + 1,
+              height: (it.lengthMin / 60 * hourHeight - 2).clamp(6.0, total),
+              start: _labelWidth + 4 + (it.kind == AgendaKind.task ? 14 : 0),
               end: 0,
-              child: _BlockTile(block: b),
+              child: GestureDetector(
+                onTap: onTap == null ? null : () => onTap!(it),
+                child: _ItemTile(item: it),
+              ),
             ),
-          PositionedDirectional(
-            top: nowMin / 60 * hourHeight - 4,
-            start: _labelWidth - 4,
-            end: 0,
-            height: 8,
-            child: Row(
-              children: [
-                Container(width: 8, height: 8, decoration: BoxDecoration(color: p.danger, shape: BoxShape.circle)),
-                Expanded(child: Container(height: 1.5, color: p.danger)),
-              ],
+          if (showNow)
+            PositionedDirectional(
+              top: nowMin / 60 * hourHeight - 4,
+              start: _labelWidth - 4,
+              end: 0,
+              height: 8,
+              child: IgnorePointer(
+                child: Row(
+                  children: [
+                    Container(width: 8, height: 8, decoration: BoxDecoration(color: p.danger, shape: BoxShape.circle)),
+                    Expanded(child: Container(height: 1.5, color: p.danger)),
+                  ],
+                ),
+              ),
             ),
-          ),
         ],
       ),
     );
   }
 }
 
-class _BlockTile extends StatelessWidget {
-  const _BlockTile({required this.block});
+class _ItemTile extends StatelessWidget {
+  const _ItemTile({required this.item});
 
-  final TimeBlock block;
+  final AgendaItem item;
 
   @override
   Widget build(BuildContext context) {
-    final s = BlockStyle.of(context, block.kind);
-    final tall = block.lengthMin >= 45;
-    return Container(
-      clipBehavior: Clip.antiAlias,
-      decoration: BoxDecoration(color: s.soft, borderRadius: BorderRadius.circular(8)),
-      child: Row(
-        children: [
-          Container(width: 3, color: s.color),
-          const SizedBox(width: 8),
-          if (tall) ...[
-            Icon(s.icon, size: 14, color: s.color),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                '${context.tr(s.labelKey)} · ${TimeUtils.clock(context, block.startMin)}–${TimeUtils.clock(context, block.endMin % 1440)}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: context.text.labelMedium?.copyWith(color: s.color, fontWeight: FontWeight.w600),
-              ),
-            ),
+    final s = AgendaStyle.of(context, item);
+    final tall = item.lengthMin >= 30;
+    final faded = item.done;
+    return Opacity(
+      opacity: faded ? 0.5 : 1,
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        decoration: BoxDecoration(
+          color: item.kind == AgendaKind.task ? s.color.withValues(alpha: 0.16) : s.soft,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            Container(width: 3, color: s.color),
             const SizedBox(width: 8),
+            if (tall) ...[
+              Icon(item.done ? Icons.check_circle_rounded : s.icon, size: 14, color: s.color),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  '${s.label} · ${TimeUtils.clock(context, item.startMin)}–${TimeUtils.clock(context, item.endMin % 1440)}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.text.labelMedium?.copyWith(
+                    color: s.color,
+                    fontWeight: FontWeight.w600,
+                    decoration: item.done ? TextDecoration.lineThrough : null,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

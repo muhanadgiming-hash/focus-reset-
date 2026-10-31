@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../app/app_controller.dart';
+import '../../app/planner_controller.dart';
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/app_palette.dart';
 import '../../core/theme/app_theme.dart';
+import '../../core/utils/date_key.dart';
 import '../../core/utils/time_utils.dart';
 import '../../core/widgets/charts.dart';
 import '../../core/widgets/controls.dart';
 import '../../core/widgets/sheet.dart';
 import '../../core/widgets/surfaces.dart';
+import '../../data/models/planning_models.dart';
 import '../onboarding/onboarding_options.dart';
 
 class SleepScreen extends StatelessWidget {
@@ -17,10 +21,23 @@ class SleepScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
+    final planner = PlannerScope.of(context);
     final profile = app.profile;
     if (profile == null) return const SizedBox.shrink();
     final p = context.palette;
+    final tag = context.localeTag;
+
+    final weekStart = startOfWeekDate(DateTime.now(), profile.firstWeekday);
     final order = OnbOptions.weekOrder(profile.firstWeekday);
+    final entries = planner.sleepEntries;
+    final weekValues = List<double>.filled(7, 0);
+    for (final e in entries) {
+      final idx = e.date.difference(weekStart).inHours ~/ 24;
+      if (idx >= 0 && idx < 7) weekValues[idx] = e.durationMin / 60;
+    }
+    final weekLogged = weekValues.where((v) => v > 0).toList();
+    final avg = weekLogged.isEmpty ? null : weekLogged.reduce((a, b) => a + b) / weekLogged.length;
+    final todayIdx = dateOnly(DateTime.now()).difference(weekStart).inHours ~/ 24;
 
     return PageScaffold(
       showBack: true,
@@ -80,47 +97,111 @@ class SleepScreen extends StatelessWidget {
         SectionHeader(
           context.tr('sleep.log'),
           actionLabel: context.tr('sleep.logNow'),
-          onAction: () => _showLogSheet(context, profile.bedtimeMin, profile.wakeMin),
+          onAction: () => showSleepLog(context),
         ),
         AppCard(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(context.tr('sleep.thisWeek'), style: context.text.titleSmall),
+              Row(
+                children: [
+                  Expanded(child: Text(context.tr('sleep.thisWeek'), style: context.text.titleSmall)),
+                  if (avg != null)
+                    Text(
+                      context.tr('sleep.average', {'d': TimeUtils.duration(context, (avg * 60).round())}),
+                      style: context.text.labelMedium,
+                    ),
+                ],
+              ),
               const SizedBox(height: Space.lg),
               MiniBarChart(
-                values: List.filled(7, 0.0),
+                values: weekValues,
                 labels: [for (final d in order) OnbOptions.weekdayShort(context, d)],
                 color: p.sleep,
                 height: 90,
+                highlightIndex: todayIdx >= 0 && todayIdx < 7 ? todayIdx : null,
               ),
-              const SizedBox(height: Space.sm),
-              Text(context.tr('sleep.noLogs'), style: context.text.bodySmall),
+              if (weekLogged.isEmpty) ...[
+                const SizedBox(height: Space.sm),
+                Text(context.tr('sleep.noLogs'), style: context.text.bodySmall),
+              ],
             ],
           ),
         ),
+        if (entries.isNotEmpty)
+          AppCard(
+            padding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.xs),
+            child: Column(
+              children: [
+                for (final e in entries.take(14))
+                  InkWell(
+                    onTap: () => showSleepLog(context, entry: e),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(DateFormat.MMMEd(tag).format(e.date), style: context.text.bodyLarge),
+                                Text(
+                                  '${TimeUtils.clock(context, e.bedtimeMin)} → ${TimeUtils.clock(context, e.wakeMin)}',
+                                  style: context.text.bodySmall,
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (e.quality != null)
+                            Padding(
+                              padding: const EdgeInsetsDirectional.only(end: Space.md),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.star_rounded, size: 16, color: p.habit),
+                                  Text('${e.quality}', style: context.text.labelMedium),
+                                ],
+                              ),
+                            ),
+                          Text(TimeUtils.duration(context, e.durationMin), style: context.text.labelLarge),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
         const SizedBox(height: Space.sm),
         Text(context.tr('sleep.disclaimer'), style: context.text.bodySmall, textAlign: TextAlign.center),
       ],
     );
   }
+}
 
-  void _showLogSheet(BuildContext context, int bed, int wake) {
-    showEditorSheet<void>(
-      context,
-      title: context.tr('sleep.logTitle'),
-      actionLabel: context.tr('common.save'),
-      bodyBuilder: (_) => _SleepLogForm(bed: bed, wake: wake),
-      onAction: (sheetContext) {
-        Navigator.of(sheetContext).pop();
-        showPhaseNotice(context, 2);
-      },
-    );
-  }
+Future<void> showSleepLog(BuildContext context, {SleepEntry? entry}) {
+  final profile = AppScope.read(context).profile;
+  final key = GlobalKey<_SleepLogFormState>();
+  return showEditorSheet<void>(
+    context,
+    title: context.tr('sleep.logTitle'),
+    actionLabel: context.tr('common.save'),
+    bodyBuilder: (_) => _SleepLogForm(
+      key: key,
+      initial: entry,
+      bed: profile?.bedtimeMin ?? 23 * 60,
+      wake: profile?.wakeMin ?? 7 * 60,
+    ),
+    onAction: (sheetContext) {
+      key.currentState?.submit();
+      Navigator.of(sheetContext).pop();
+    },
+  );
 }
 
 class _SleepLogForm extends StatefulWidget {
-  const _SleepLogForm({required this.bed, required this.wake});
+  const _SleepLogForm({super.key, this.initial, required this.bed, required this.wake});
+
+  final SleepEntry? initial;
   final int bed;
   final int wake;
 
@@ -129,9 +210,31 @@ class _SleepLogForm extends StatefulWidget {
 }
 
 class _SleepLogFormState extends State<_SleepLogForm> {
-  late int _bed = widget.bed;
-  late int _wake = widget.wake;
-  int? _quality;
+  late DateTime _date = widget.initial?.date ?? dateOnly(DateTime.now());
+  late int _bed = widget.initial?.bedtimeMin ?? widget.bed;
+  late int _wake = widget.initial?.wakeMin ?? widget.wake;
+  late int? _quality = widget.initial?.quality;
+
+  void submit() {
+    PlannerScope.read(context).saveSleep(SleepEntry(
+      id: widget.initial?.id ?? PlannerController.newId(),
+      date: _date,
+      bedtimeMin: _bed,
+      wakeMin: _wake,
+      quality: _quality,
+    ));
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: now.subtract(const Duration(days: 365)),
+      lastDate: now,
+    );
+    if (picked != null) setState(() => _date = picked);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -139,7 +242,16 @@ class _SleepLogFormState extends State<_SleepLogForm> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        FieldLabel(context.tr('sleep.lastNight')),
+        FieldLabel(context.tr('sleep.morningOf')),
+        GroupBox(children: [
+          TapRow(
+            icon: Icons.calendar_today_outlined,
+            label: context.tr('commitment.date'),
+            value: DateFormat.yMMMEd(context.localeTag).format(_date),
+            onTap: _pickDate,
+          ),
+        ]),
+        const SizedBox(height: Space.md),
         TimeField(label: context.tr('sleep.wentToBed'), minutes: _bed, onChanged: (v) => setState(() => _bed = v)),
         const SizedBox(height: Space.sm),
         TimeField(label: context.tr('sleep.wokeUp'), minutes: _wake, onChanged: (v) => setState(() => _wake = v)),
@@ -155,7 +267,7 @@ class _SleepLogFormState extends State<_SleepLogForm> {
           children: [
             for (var q = 1; q <= 5; q++)
               GestureDetector(
-                onTap: () => setState(() => _quality = q),
+                onTap: () => setState(() => _quality = _quality == q ? null : q),
                 child: Icon(
                   (_quality ?? 0) >= q ? Icons.star_rounded : Icons.star_outline_rounded,
                   size: 36,
@@ -164,6 +276,17 @@ class _SleepLogFormState extends State<_SleepLogForm> {
               ),
           ],
         ),
+        if (widget.initial != null) ...[
+          const SizedBox(height: Space.xl),
+          AppButton(
+            label: context.tr('common.delete'),
+            tone: ButtonTone.destructive,
+            onPressed: () {
+              PlannerScope.read(context).deleteSleep(widget.initial!.id);
+              Navigator.of(context).pop();
+            },
+          ),
+        ],
       ],
     );
   }

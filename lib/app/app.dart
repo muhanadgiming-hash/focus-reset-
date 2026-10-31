@@ -6,17 +6,21 @@ import '../core/theme/app_theme.dart';
 import '../features/auth/welcome_screen.dart';
 import '../features/shell/main_shell.dart';
 import 'app_controller.dart';
+import 'planner_controller.dart';
 
 class FocusResetApp extends StatelessWidget {
-  const FocusResetApp({super.key, required this.controller});
+  const FocusResetApp({super.key, required this.controller, required this.planner});
 
   final AppController controller;
+  final PlannerController planner;
 
   @override
   Widget build(BuildContext context) {
     return AppScope(
       controller: controller,
-      child: ListenableBuilder(
+      child: PlannerScope(
+        controller: planner,
+        child: ListenableBuilder(
         listenable: controller,
         builder: (context, _) => MaterialApp(
           title: 'Focus Reset',
@@ -34,6 +38,7 @@ class FocusResetApp extends StatelessWidget {
             GlobalCupertinoLocalizations.delegate,
           ],
           home: const _RootGate(),
+          ),
         ),
       ),
     );

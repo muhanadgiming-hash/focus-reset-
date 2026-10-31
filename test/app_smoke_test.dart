@@ -4,18 +4,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:focus_reset/app/app.dart';
 import 'package:focus_reset/app/app_controller.dart';
+import 'package:focus_reset/app/planner_controller.dart';
 import 'package:focus_reset/data/models/user_profile.dart';
+import 'package:focus_reset/data/repositories/planner_repository.dart';
 import 'package:focus_reset/data/repositories/profile_repository.dart';
 import 'package:focus_reset/data/services/preferences_service.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-Future<AppController> _controller(Map<String, Object> initial) async {
+Future<FocusResetApp> _app(Map<String, Object> initial) async {
   SharedPreferences.setMockInitialValues(initial);
   final prefs = await PreferencesService.create();
   final c = AppController(prefs: prefs, profiles: LocalProfileRepository(prefs));
+  final planner = PlannerController(repository: LocalPlannerRepository(prefs));
   await c.load();
-  return c;
+  await planner.load();
+  return FocusResetApp(controller: c, planner: planner);
 }
 
 const _profile = UserProfile(
@@ -31,16 +35,14 @@ void main() {
   setUpAll(() async => initializeDateFormatting());
 
   testWidgets('first launch shows the welcome screen', (tester) async {
-    final c = await _controller({'settings.locale': 'en'});
-    await tester.pumpWidget(FocusResetApp(controller: c));
+    await tester.pumpWidget(await _app({'settings.locale': 'en'}));
     await tester.pumpAndSettle();
     expect(find.text('Focus Reset'), findsOneWidget);
     expect(find.text('Get started'), findsOneWidget);
   });
 
   testWidgets('Arabic switches layout to right-to-left', (tester) async {
-    final c = await _controller({'settings.locale': 'ar'});
-    await tester.pumpWidget(FocusResetApp(controller: c));
+    await tester.pumpWidget(await _app({'settings.locale': 'ar'}));
     await tester.pumpAndSettle();
     expect(find.text('ابدأ الآن'), findsOneWidget);
     final ctx = tester.element(find.text('ابدأ الآن'));
@@ -48,11 +50,10 @@ void main() {
   });
 
   testWidgets('saved profile opens the main app and every tab renders', (tester) async {
-    final c = await _controller({
+    await tester.pumpWidget(await _app({
       'settings.locale': 'en',
       'profile.v1': jsonEncode(_profile.toJson()),
-    });
-    await tester.pumpWidget(FocusResetApp(controller: c));
+    }));
     await tester.pump(const Duration(seconds: 1));
 
     for (final tab in ['Plan', 'Tasks', 'Habits', 'Focus', 'Today']) {

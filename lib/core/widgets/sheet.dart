@@ -118,3 +118,165 @@ class SwitchRow extends StatelessWidget {
     );
   }
 }
+
+/// Row that opens a picker or sheet when tapped, showing the current value.
+class TapRow extends StatelessWidget {
+  const TapRow({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.onTap,
+    this.onClear,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final VoidCallback onTap;
+  final VoidCallback? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: p.textSecondary),
+            const SizedBox(width: Space.md),
+            Expanded(child: Text(label, style: context.text.bodyLarge)),
+            Flexible(
+              child: Text(
+                value,
+                textAlign: TextAlign.end,
+                overflow: TextOverflow.ellipsis,
+                style: context.text.bodyMedium?.copyWith(color: p.textSecondary),
+              ),
+            ),
+            if (onClear != null)
+              GestureDetector(
+                onTap: onClear,
+                child: Padding(
+                  padding: const EdgeInsetsDirectional.only(start: Space.sm),
+                  child: Icon(Icons.cancel_rounded, size: 18, color: p.textTertiary),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Row with a pop-up menu of options.
+class MenuRow<T> extends StatelessWidget {
+  const MenuRow({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+  });
+
+  final IconData icon;
+  final String label;
+  final T value;
+  final Map<T, String> options;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    return PopupMenuButton<T>(
+      initialValue: value,
+      onSelected: onChanged,
+      color: p.surface,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(Radii.md)),
+      itemBuilder: (_) => [
+        for (final e in options.entries) PopupMenuItem<T>(value: e.key, child: Text(e.value)),
+      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: 14),
+        child: Row(
+          children: [
+            Icon(icon, size: 20, color: p.textSecondary),
+            const SizedBox(width: Space.md),
+            Expanded(child: Text(label, style: context.text.bodyLarge)),
+            Flexible(
+              child: Text(
+                options[value] ?? '',
+                textAlign: TextAlign.end,
+                overflow: TextOverflow.ellipsis,
+                style: context.text.bodyMedium?.copyWith(color: p.textSecondary),
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(Icons.unfold_more_rounded, size: 18, color: p.textTertiary),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A tappable action line inside an action sheet.
+class ActionRow extends StatelessWidget {
+  const ActionRow({super.key, required this.icon, required this.label, required this.onTap, this.destructive = false});
+
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.palette;
+    final color = destructive ? p.danger : p.textPrimary;
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: 15),
+        child: Row(
+          children: [
+            Icon(icon, size: 21, color: destructive ? p.danger : p.textSecondary),
+            const SizedBox(width: Space.md),
+            Expanded(child: Text(label, style: context.text.bodyLarge?.copyWith(color: color))),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Shows a compact sheet of actions and returns the chosen value.
+Future<T?> showActionSheet<T>(BuildContext context, {required String title, String? subtitle, required List<(IconData, String, T, bool)> actions}) {
+  return showModalBottomSheet<T>(
+    context: context,
+    builder: (ctx) => SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(Space.gutter, 0, Space.gutter, Space.lg),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(title, style: ctx.text.titleMedium, textAlign: TextAlign.center, maxLines: 2, overflow: TextOverflow.ellipsis),
+            if (subtitle != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(subtitle, style: ctx.text.bodySmall, textAlign: TextAlign.center),
+              ),
+            const SizedBox(height: Space.lg),
+            GroupBox(children: [
+              for (final (icon, label, value, destructive) in actions)
+                ActionRow(icon: icon, label: label, destructive: destructive, onTap: () => Navigator.pop(ctx, value)),
+            ]),
+          ],
+        ),
+      ),
+    ),
+  );
+}
