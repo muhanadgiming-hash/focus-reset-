@@ -42,7 +42,7 @@ class _MainShellState extends State<MainShell> {
             FocusScreen(),
           ],
         ),
-        bottomNavigationBar: _TabBar(current: _tab, onSelect: _select),
+        bottomNavigationBar: _TabBar(key: const Key('main-tab-bar'), current: _tab, onSelect: _select),
       ),
     );
   }
@@ -62,7 +62,7 @@ class ShellScope extends InheritedWidget {
 }
 
 class _TabBar extends StatelessWidget {
-  const _TabBar({required this.current, required this.onSelect});
+  const _TabBar({super.key, required this.current, required this.onSelect});
 
   final AppTab current;
   final ValueChanged<AppTab> onSelect;

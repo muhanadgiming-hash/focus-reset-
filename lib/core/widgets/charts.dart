@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:ui' show FontFeature;
 
 import 'package:flutter/material.dart';
 
@@ -115,7 +114,7 @@ class MiniBarChart extends StatelessWidget {
                       duration: Duration(milliseconds: 500 + i * 60),
                       curve: Curves.easeOutCubic,
                       builder: (context, f, _) => Container(
-                        height: math.max(4, f * height),
+                        height: math.max(4.0, f * height),
                         decoration: BoxDecoration(
                           color: values[i] == 0
                               ? p.surfaceAlt

@@ -66,7 +66,7 @@ abstract final class FixedBlocks {
     final end = p.workEndMin % 1440;
     if (start == end) return const [];
 
-    final buffer = p.commuteBufferMin.clamp(0, 180);
+    final buffer = p.commuteBufferMin.clamp(0, 180).toInt();
     final today = day.weekday;
     final yesterday = today == DateTime.monday ? DateTime.sunday : today - 1;
     final out = <TimeBlock>[];

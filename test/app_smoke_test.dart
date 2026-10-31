@@ -56,7 +56,7 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
 
     for (final tab in ['Plan', 'Tasks', 'Habits', 'Focus', 'Today']) {
-      await tester.tap(find.text(tab).last);
+      await tester.tap(find.descendant(of: find.byKey(const Key('main-tab-bar')), matching: find.text(tab)));
       await tester.pump(const Duration(milliseconds: 600));
       expect(tester.takeException(), isNull, reason: 'Tab $tab threw');
     }
