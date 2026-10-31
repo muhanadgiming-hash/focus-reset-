@@ -4,7 +4,7 @@ publish_to: "none"
 
 # version: <marketing version>+<build number>
 # Codemagic overrides the build number automatically on each build.
-version: 0.3.0+3
+version: 0.4.0+4
 
 environment:
   sdk: ^3.6.0
@@ -18,6 +18,8 @@ dependencies:
   intl: any
   shared_preferences: ^2.3.2
   supabase_flutter: ^2.8.0
+  focus_native:
+    path: packages/focus_native
   cupertino_icons: ^1.0.8
 
 dev_dependencies:

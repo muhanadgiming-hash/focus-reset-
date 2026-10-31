@@ -142,7 +142,7 @@ class _WeeklyScheduleViewState extends State<WeeklyScheduleView> {
                             children: [
                               for (final it in (DayAgenda.build(
                                 profile: profile,
-                                commitments: planner.commitments,
+                                commitments: planner.allCommitments,
                                 tasks: planner.tasks,
                                 day: d,
                               )..sort((a, b) => a.kind.index.compareTo(b.kind.index))))

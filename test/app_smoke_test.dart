@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:focus_reset/app/account_controller.dart';
 import 'package:focus_reset/app/app.dart';
 import 'package:focus_reset/app/app_controller.dart';
+import 'package:focus_reset/app/integrations_controller.dart';
 import 'package:focus_reset/app/planner_controller.dart';
 import 'package:focus_reset/data/models/user_profile.dart';
 import 'package:focus_reset/data/repositories/planner_repository.dart';
@@ -20,7 +21,12 @@ Future<FocusResetApp> _app(Map<String, Object> initial) async {
   final planner = PlannerController(repository: LocalPlannerRepository(prefs));
   await c.load();
   await planner.load();
-  return FocusResetApp(controller: c, planner: planner, account: AccountController(app: c, planner: planner));
+  return FocusResetApp(
+    controller: c,
+    planner: planner,
+    account: AccountController(app: c, planner: planner),
+    integrations: IntegrationsController(app: c, planner: planner, store: prefs),
+  );
 }
 
 const _profile = UserProfile(

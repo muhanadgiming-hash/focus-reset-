@@ -22,6 +22,10 @@ class PlannerController extends ChangeNotifier {
 
   final List<TaskItem> _tasks = [];
   final List<Commitment> _commitments = [];
+
+  /// Read-only events from Apple Calendar. Kept in memory only: never
+  /// stored, never synced, never edited.
+  List<Commitment> _external = const [];
   final List<Habit> _habits = [];
   final HabitLogs _habitLogs = {};
   final List<FocusSession> _sessions = [];
@@ -32,6 +36,17 @@ class PlannerController extends ChangeNotifier {
 
   List<TaskItem> get tasks => List.unmodifiable(_tasks);
   List<Commitment> get commitments => List.unmodifiable(_commitments);
+
+  /// The user's own commitments plus calendar events — what the scheduler
+  /// and the timelines plan around.
+  List<Commitment> get allCommitments => List.unmodifiable([..._commitments, ..._external]);
+
+  bool isExternal(String? id) => id != null && id.startsWith('cal:');
+
+  void setExternalCommitments(List<Commitment> items) {
+    _external = List.unmodifiable(items);
+    notifyListeners();
+  }
   List<Habit> get habits => List.unmodifiable(_habits);
   HabitLogs get habitLogs => _habitLogs;
   List<FocusSession> get focusSessions => List.unmodifiable(_sessions);
@@ -163,7 +178,7 @@ class PlannerController extends ChangeNotifier {
     final n = now ?? DateTime.now();
     return _engine.plan(
       profile: profile,
-      commitments: _commitments,
+      commitments: [..._commitments, ..._external],
       tasks: _tasks,
       from: n,
       to: DateTime(n.year, n.month, n.day + 8),

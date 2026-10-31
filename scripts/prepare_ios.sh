@@ -37,6 +37,11 @@ $PB -c "Add :CFBundleLocalizations array" "$PLIST"
 $PB -c "Add :CFBundleLocalizations:0 string en" "$PLIST"
 $PB -c "Add :CFBundleLocalizations:1 string ar" "$PLIST"
 
+# Apple Calendar is read (never written) so tasks avoid existing events.
+CAL_TEXT="Focus Reset reads your calendar events so it never schedules tasks over them. Nothing is changed or uploaded."
+set_string NSCalendarsUsageDescription "$CAL_TEXT"
+set_string NSCalendarsFullAccessUsageDescription "$CAL_TEXT"
+
 # Only standard HTTPS encryption is used — no export-compliance questions.
 set_bool ITSAppUsesNonExemptEncryption false
 

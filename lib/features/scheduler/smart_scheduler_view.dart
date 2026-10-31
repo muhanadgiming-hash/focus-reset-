@@ -26,7 +26,13 @@ void openAgendaItem(BuildContext context, AgendaItem item) {
     case AgendaKind.commitment:
     case AgendaKind.commute:
       final c = planner.commitmentById(item.refId);
-      if (c != null) showCommitmentSheet(context, initial: c);
+      if (c != null) {
+        showCommitmentSheet(context, initial: c);
+      } else if (planner.isExternal(item.refId)) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(SnackBar(content: Text(context.tr('calendar.readOnly'))));
+      }
     case AgendaKind.sleep:
     case AgendaKind.work:
       break;
@@ -52,7 +58,7 @@ class _SmartSchedulerViewState extends State<SmartSchedulerView> {
 
     final items = DayAgenda.build(
       profile: profile,
-      commitments: planner.commitments,
+      commitments: planner.allCommitments,
       tasks: planner.tasks,
       day: _day,
     );

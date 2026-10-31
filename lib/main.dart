@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app/account_controller.dart';
 import 'app/app.dart';
 import 'app/app_controller.dart';
+import 'app/integrations_controller.dart';
 import 'app/planner_controller.dart';
 import 'core/config/env.dart';
 import 'data/repositories/planner_repository.dart';
@@ -51,5 +52,10 @@ Future<void> main() async {
           ),
   )..start();
 
-  runApp(FocusResetApp(controller: controller, planner: planner, account: account));
+  final integrations = IntegrationsController(app: controller, planner: planner, store: prefs);
+
+  runApp(FocusResetApp(controller: controller, planner: planner, account: account, integrations: integrations));
+  // Permissions are only checked here; nothing is requested until the user
+  // turns a feature on.
+  integrations.start();
 }

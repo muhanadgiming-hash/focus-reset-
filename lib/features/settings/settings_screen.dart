@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/account_controller.dart';
 import '../../app/app_controller.dart';
+import '../../app/integrations_controller.dart';
 import '../../app/planner_controller.dart';
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/app_palette.dart';
@@ -12,18 +13,20 @@ import '../../core/widgets/sheet.dart';
 import '../../core/widgets/surfaces.dart';
 import '../onboarding/onboarding_flow.dart';
 import 'account_screen.dart';
+import 'integrations_screens.dart';
 import 'privacy_screen.dart';
 
 /// Profile & Settings.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
-  static const appVersion = '0.3.0 (Phase 3)';
+  static const appVersion = '0.4.0 (Phase 4)';
 
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final account = AccountScope.of(context);
+    final ix = IntegrationsScope.of(context);
     final profile = app.profile;
     if (profile == null) return const SizedBox.shrink();
     final p = context.palette;
@@ -116,15 +119,15 @@ class SettingsScreen extends StatelessWidget {
             icon: Icons.notifications_none_rounded,
             color: p.danger,
             label: context.tr('settings.notifications'),
-            value: context.tr('phase.label', {'n': '4'}),
-            onTap: () => showPhaseNotice(context, 4),
+            value: context.tr(ix.notificationPrefs.enabled ? 'common.on' : 'common.off'),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const NotificationsScreen())),
           ),
           _NavRow(
             icon: Icons.calendar_month_outlined,
             color: p.danger,
             label: context.tr('settings.calendar'),
-            value: context.tr('phase.label', {'n': '4'}),
-            onTap: () => showPhaseNotice(context, 4),
+            value: context.tr(ix.calendarEnabled ? 'common.on' : 'common.off'),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CalendarScreen())),
           ),
           _NavRow(
             icon: Icons.hourglass_empty_rounded,

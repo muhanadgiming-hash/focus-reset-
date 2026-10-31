@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../app/app_controller.dart';
+import '../../app/integrations_controller.dart';
 import '../../app/planner_controller.dart';
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/app_palette.dart';
@@ -22,6 +23,7 @@ class SleepScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
     final planner = PlannerScope.of(context);
+    final ix = IntegrationsScope.of(context);
     final profile = app.profile;
     if (profile == null) return const SizedBox.shrink();
     final p = context.palette;
@@ -90,8 +92,13 @@ class SleepScreen extends StatelessWidget {
           SwitchRow(
             label: context.tr('sleep.reminder'),
             subtitle: context.tr('sleep.reminderSub'),
-            value: false,
-            onChanged: (_) => showPhaseNotice(context, 4),
+            value: ix.notificationPrefs.enabled && ix.notificationPrefs.bedtime,
+            onChanged: (v) async {
+              if (v && !ix.notificationPrefs.enabled) {
+                if (!await ix.setNotificationsEnabled(true)) return;
+              }
+              await ix.updateNotificationPrefs(ix.notificationPrefs.copyWith(bedtime: v));
+            },
           ),
         ]),
         SectionHeader(

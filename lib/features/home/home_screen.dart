@@ -67,7 +67,7 @@ class HomeScreen extends StatelessWidget {
 
     final agenda = DayAgenda.build(
       profile: profile,
-      commitments: planner.commitments,
+      commitments: planner.allCommitments,
       tasks: planner.tasks,
       day: today,
     );

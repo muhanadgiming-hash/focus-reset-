@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../app/app_controller.dart';
+import '../../app/integrations_controller.dart';
 import '../../app/planner_controller.dart';
 import '../../core/l10n/app_strings.dart';
 import '../../core/theme/app_palette.dart';
@@ -78,11 +79,13 @@ class _FocusScreenState extends State<FocusScreen> {
     });
     _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(milliseconds: 500), (_) => _tick());
+    IntegrationsScope.read(context).scheduleTimerEnd(_endsAt!, focus: _phase == FocusPhase.focus);
   }
 
   void _pause() {
     HapticFeedback.lightImpact();
     _ticker?.cancel();
+    IntegrationsScope.read(context).cancelTimerEnd();
     setState(() {
       _pausedRemaining = _remaining;
       _endsAt = null;
@@ -91,6 +94,7 @@ class _FocusScreenState extends State<FocusScreen> {
 
   void _reset() {
     _ticker?.cancel();
+    IntegrationsScope.read(context).cancelTimerEnd();
     if (_phase == FocusPhase.focus && _sessionStart != null) {
       final spent = DateTime.now().difference(_sessionStart!).inMinutes;
       if (spent >= 1) {
