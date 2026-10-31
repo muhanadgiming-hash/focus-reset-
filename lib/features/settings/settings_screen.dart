@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../app/account_controller.dart';
 import '../../app/app_controller.dart';
 import '../../app/planner_controller.dart';
 import '../../core/l10n/app_strings.dart';
@@ -10,17 +11,19 @@ import '../../core/widgets/controls.dart';
 import '../../core/widgets/sheet.dart';
 import '../../core/widgets/surfaces.dart';
 import '../onboarding/onboarding_flow.dart';
+import 'account_screen.dart';
 import 'privacy_screen.dart';
 
 /// Profile & Settings.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
-  static const appVersion = '0.2.0 (Phase 2)';
+  static const appVersion = '0.3.0 (Phase 3)';
 
   @override
   Widget build(BuildContext context) {
     final app = AppScope.of(context);
+    final account = AccountScope.of(context);
     final profile = app.profile;
     if (profile == null) return const SizedBox.shrink();
     final p = context.palette;
@@ -138,8 +141,10 @@ class SettingsScreen extends StatelessWidget {
             icon: Icons.cloud_outlined,
             color: p.accent,
             label: context.tr('settings.sync'),
-            value: context.tr('settings.thisDeviceOnly'),
-            onTap: () => showPhaseNotice(context, 3),
+            value: !account.configured
+                ? context.tr('settings.thisDeviceOnly')
+                : (account.signedIn ? (account.email ?? '') : context.tr('settings.notSignedIn')),
+            onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AccountScreen())),
           ),
           _NavRow(
             icon: Icons.privacy_tip_outlined,
@@ -150,13 +155,17 @@ class SettingsScreen extends StatelessWidget {
         ]),
 
         const SizedBox(height: Space.xl),
-        AppButton(
-          label: context.tr('settings.deleteData'),
-          tone: ButtonTone.destructive,
-          onPressed: () => _confirmDelete(context),
-        ),
-        const SizedBox(height: Space.sm),
-        Text(context.tr('settings.deleteDataSub'), style: context.text.bodySmall, textAlign: TextAlign.center),
+        if (account.signedIn)
+          Text(context.tr('settings.deleteViaAccount'), style: context.text.bodySmall, textAlign: TextAlign.center)
+        else ...[
+          AppButton(
+            label: context.tr('settings.deleteData'),
+            tone: ButtonTone.destructive,
+            onPressed: () => _confirmDelete(context),
+          ),
+          const SizedBox(height: Space.sm),
+          Text(context.tr('settings.deleteDataSub'), style: context.text.bodySmall, textAlign: TextAlign.center),
+        ],
         const SizedBox(height: Space.xl),
         Text('Focus Reset ${SettingsScreen.appVersion}', style: context.text.labelSmall, textAlign: TextAlign.center),
       ],

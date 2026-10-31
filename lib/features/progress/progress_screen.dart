@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../app/app_controller.dart';
 import '../../app/planner_controller.dart';
@@ -204,11 +207,34 @@ class _ProgressScreenState extends State<ProgressScreen> {
           label: context.tr('progress.export'),
           tone: ButtonTone.secondary,
           icon: Icons.ios_share_rounded,
-          onPressed: () => showPhaseNotice(context, 3),
+          onPressed: () => _export(context),
         ),
       ],
     );
   }
+}
+
+/// Copies all of the user's data as JSON (data portability).
+Future<void> _export(BuildContext context) async {
+  final planner = PlannerScope.read(context);
+  final profile = AppScope.read(context).profile;
+  final messenger = ScaffoldMessenger.of(context);
+  final done = context.tr('progress.exported');
+  final data = {
+    'app': 'Focus Reset',
+    'exportedAt': DateTime.now().toUtc().toIso8601String(),
+    'profile': profile?.toJson(),
+    'tasks': [for (final t in planner.tasks) t.toJson()],
+    'commitments': [for (final c in planner.commitments) c.toJson()],
+    'habits': [for (final h in planner.habits) h.toJson()],
+    'habitLogs': planner.habitLogs,
+    'focusSessions': [for (final f in planner.focusSessions) f.toJson()],
+    'sleep': [for (final s in planner.sleepEntries) s.toJson()],
+  };
+  await Clipboard.setData(ClipboardData(text: const JsonEncoder.withIndent('  ').convert(data)));
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(content: Text(done)));
 }
 
 class _RingStat extends StatelessWidget {

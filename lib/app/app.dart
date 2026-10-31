@@ -5,14 +5,16 @@ import '../core/l10n/app_strings.dart';
 import '../core/theme/app_theme.dart';
 import '../features/auth/welcome_screen.dart';
 import '../features/shell/main_shell.dart';
+import 'account_controller.dart';
 import 'app_controller.dart';
 import 'planner_controller.dart';
 
 class FocusResetApp extends StatelessWidget {
-  const FocusResetApp({super.key, required this.controller, required this.planner});
+  const FocusResetApp({super.key, required this.controller, required this.planner, required this.account});
 
   final AppController controller;
   final PlannerController planner;
+  final AccountController account;
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +22,9 @@ class FocusResetApp extends StatelessWidget {
       controller: controller,
       child: PlannerScope(
         controller: planner,
-        child: ListenableBuilder(
+        child: AccountScope(
+          controller: account,
+          child: ListenableBuilder(
         listenable: controller,
         builder: (context, _) => MaterialApp(
           title: 'Focus Reset',
@@ -38,6 +42,7 @@ class FocusResetApp extends StatelessWidget {
             GlobalCupertinoLocalizations.delegate,
           ],
           home: const _RootGate(),
+            ),
           ),
         ),
       ),

@@ -9,6 +9,10 @@ definitions:
     flutter: stable
     xcode: latest
     cocoapods: default
+    # Encrypted variables SUPABASE_URL and SUPABASE_ANON_KEY live in the
+    # Codemagic group "supabase" (Application settings → Environment variables).
+    groups:
+      - supabase
     vars:
       # Change to your own reverse-domain ID before Phase 6 and register it
       # in developer.apple.com → Identifiers.
@@ -52,7 +56,10 @@ workflows:
       - name: Unit & widget tests
         script: flutter test
       - name: Build iOS (unsigned release)
-        script: flutter build ios --release --no-codesign
+        script: |
+          flutter build ios --release --no-codesign \
+            --dart-define=SUPABASE_URL="${SUPABASE_URL:-}" \
+            --dart-define=SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}"
     artifacts:
       - build/ios/iphoneos/*.app
       - "**/*.log"
@@ -75,6 +82,8 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.focusreset.app
+      groups:
+        - supabase
       vars:
         BUNDLE_ID: "com.focusreset.app"
         # Numeric Apple ID of the app from App Store Connect → App Information.
@@ -92,6 +101,8 @@ workflows:
           LATEST=$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" || echo 0)
           flutter build ipa --release \
             --build-number=$((LATEST + 1)) \
+            --dart-define=SUPABASE_URL="$SUPABASE_URL" \
+            --dart-define=SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
             --export-options-plist=/Users/builder/export_options.plist
     artifacts:
       - build/ios/ipa/*.ipa

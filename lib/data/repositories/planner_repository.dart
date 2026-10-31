@@ -40,7 +40,7 @@ abstract interface class PlannerRepository {
 class LocalPlannerRepository implements PlannerRepository {
   LocalPlannerRepository(this._prefs);
 
-  final PreferencesService _prefs;
+  final KeyValueStore _prefs;
 
   static const _kTasks = 'planner.tasks.v1';
   static const _kCommitments = 'planner.commitments.v1';

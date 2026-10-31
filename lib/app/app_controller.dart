@@ -61,6 +61,19 @@ class AppController extends ChangeNotifier {
     await _profiles.save(profile);
   }
 
+  /// Re-reads the profile from storage (after a sync brought a newer one).
+  Future<void> reloadProfile() async {
+    _profile = await _profiles.load();
+    notifyListeners();
+  }
+
+  /// Removes only the profile (language and appearance stay).
+  Future<void> clearProfile() async {
+    _profile = null;
+    notifyListeners();
+    await _profiles.clear();
+  }
+
   /// Deletes everything Focus Reset stored on this device and returns the
   /// app to the welcome screen.
   Future<void> deleteAllLocalData() async {

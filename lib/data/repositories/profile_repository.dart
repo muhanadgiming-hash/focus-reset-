@@ -15,7 +15,7 @@ abstract interface class ProfileRepository {
 class LocalProfileRepository implements ProfileRepository {
   LocalProfileRepository(this._prefs);
 
-  final PreferencesService _prefs;
+  final KeyValueStore _prefs;
 
   @override
   Future<UserProfile?> load() async {
