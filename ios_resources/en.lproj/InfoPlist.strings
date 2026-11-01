@@ -1,0 +1,4 @@
+/* iOS permission prompts and home-screen name — English */
+"CFBundleDisplayName" = "Focus Reset";
+"NSCalendarsUsageDescription" = "Focus Reset reads your calendar events so it never schedules tasks over them. Nothing is changed or uploaded.";
+"NSCalendarsFullAccessUsageDescription" = "Focus Reset reads your calendar events so it never schedules tasks over them. Nothing is changed or uploaded.";

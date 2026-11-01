@@ -1,0 +1,4 @@
+/* نوافذ أذونات iOS واسم التطبيق — العربية */
+"CFBundleDisplayName" = "Focus Reset";
+"NSCalendarsUsageDescription" = "يقرأ Focus Reset مواعيد تقويمك حتى لا يجدول مهامك فوقها أبدًا. لا يُغيَّر شيء ولا يُرفع.";
+"NSCalendarsFullAccessUsageDescription" = "يقرأ Focus Reset مواعيد تقويمك حتى لا يجدول مهامك فوقها أبدًا. لا يُغيَّر شيء ولا يُرفع.";

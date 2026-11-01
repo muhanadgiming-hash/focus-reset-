@@ -20,7 +20,7 @@ import 'privacy_screen.dart';
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
-  static const appVersion = '0.5.0 (Phase 5)';
+  static const appVersion = '1.0.0';
 
   @override
   Widget build(BuildContext context) {

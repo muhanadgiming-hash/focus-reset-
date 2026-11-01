@@ -67,9 +67,10 @@ workflows:
       - "**/*.log"
 
   # ---------------------------------------------------------------------------
-  # Phase 6: signed build uploaded to TestFlight / App Store Connect.
-  # Run manually once the Apple Developer account and the Codemagic
-  # App Store Connect integration (named below) are set up.
+  # Signed build uploaded to TestFlight / App Store Connect.
+  # Run manually. Setup steps: docs/RELEASE_GUIDE.md
+  # Before the first run, change com.focusreset.app (3 places) and
+  # APP_STORE_APPLE_ID below.
   # ---------------------------------------------------------------------------
   ios-release:
     name: iOS · TestFlight release
@@ -95,6 +96,8 @@ workflows:
       - *prepare_ios
       - *pub_get
       - *app_icons
+      - name: Static analysis
+        script: flutter analyze --no-fatal-infos
       - name: Tests
         script: flutter test
       - name: Apply signing profiles

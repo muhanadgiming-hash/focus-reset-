@@ -76,4 +76,8 @@ PLIST
   echo "Family Controls entitlement enabled"
 fi
 
+# Arabic permission prompts and Apple's privacy manifest.
+cp -R ios_resources/en.lproj ios_resources/ar.lproj ios_resources/PrivacyInfo.xcprivacy ios/Runner/
+ruby scripts/ios_extras.rb || echo "WARNING: could not add localized resources (build continues)"
+
 echo "iOS project ready — bundle id: ${BUNDLE_ID}"
