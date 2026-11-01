@@ -33,6 +33,7 @@ class IntegrationsController extends ChangeNotifier with WidgetsBindingObserver 
 
   static const _kNotif = 'settings.notifications.v1';
   static const _kCalendar = 'settings.calendar.v1';
+  static const _kBlocking = 'settings.blocking.v1';
   static const focusNotificationId = 'frx.focus';
 
   NotificationPrefs _prefs = const NotificationPrefs();
@@ -43,6 +44,11 @@ class IntegrationsController extends ChangeNotifier with WidgetsBindingObserver 
   List<DeviceCalendar> _calendars = const [];
   int _pending = 0;
   String? _timeZone;
+  bool _blockingEnabled = false;
+  PermissionState _blockingPermission = PermissionState.unknown;
+  bool _blockingUnavailable = false;
+  BlockSelection _blocked = const BlockSelection();
+  DateTime? _shieldUntil;
   Timer? _debounce;
   bool _started = false;
 
@@ -54,6 +60,15 @@ class IntegrationsController extends ChangeNotifier with WidgetsBindingObserver 
   List<DeviceCalendar> get calendars => _calendars;
   int get pendingReminders => _pending;
   String? get timeZone => _timeZone;
+
+  bool get blockingEnabled => _blockingEnabled;
+  PermissionState get blockingPermission => _blockingPermission;
+
+  /// Authorization failed without a decision from the user — the build does
+  /// not have Apple's Family Controls entitlement yet.
+  bool get blockingUnavailable => _blockingUnavailable;
+  BlockSelection get blockedSelection => _blocked;
+  bool get shieldActive => _shieldUntil != null;
 
   Future<void> start() async {
     if (_started) return;
@@ -75,6 +90,13 @@ class IntegrationsController extends ChangeNotifier with WidgetsBindingObserver 
         _calendarEnabled = j['enabled'] == true;
         _calendarIds = ((j['ids'] as List?) ?? const []).map((e) => '$e').toSet();
       }
+      final b = _store.getString(_kBlocking);
+      if (b != null) {
+        final j = jsonDecode(b) as Map<String, dynamic>;
+        _blockingEnabled = j['enabled'] == true;
+        final until = j['until'];
+        _shieldUntil = until is String ? DateTime.tryParse(until)?.toLocal() : null;
+      }
     } catch (_) {
       // Corrupt settings: fall back to defaults.
     }
@@ -83,9 +105,17 @@ class IntegrationsController extends ChangeNotifier with WidgetsBindingObserver 
   Future<void> _saveCalendarPrefs() =>
       _store.setString(_kCalendar, jsonEncode({'enabled': _calendarEnabled, 'ids': _calendarIds.toList()}));
 
+  Future<void> _saveBlocking() => _store.setString(
+        _kBlocking,
+        jsonEncode({'enabled': _blockingEnabled, 'until': _shieldUntil?.toUtc().toIso8601String()}),
+      );
+
   Future<void> _refreshAll() async {
     _notifPermission = await _native.notificationStatus();
     _calendarPermission = await _native.calendarStatus();
+    _blockingPermission = await _native.blockingStatus();
+    _blocked = await _native.blockedCounts();
+    await _expireShield();
     await _syncTimeZone();
     await refreshCalendar();
     await rescheduleNotifications();
@@ -188,6 +218,65 @@ class IntegrationsController extends ChangeNotifier with WidgetsBindingObserver 
   }
 
   Future<void> cancelTimerEnd() => _native.cancelNotifications(const [focusNotificationId]);
+
+  // --------------------------------------------------------- app blocking
+
+  /// Lifts a shield whose focus session already ended (e.g. the app was
+  /// closed during the session).
+  Future<void> _expireShield() async {
+    final until = _shieldUntil;
+    if (until != null && !DateTime.now().isBefore(until)) await stopFocusShield();
+  }
+
+  /// Returns false when blocking cannot be turned on (unsupported iOS
+  /// version, permission refused, or entitlement not approved yet).
+  Future<bool> setBlockingEnabled(bool on) async {
+    if (on) {
+      if (_blockingPermission == PermissionState.unsupported) return false;
+      if (_blockingPermission != PermissionState.authorized) {
+        final ok = await _native.requestBlocking();
+        _blockingPermission = await _native.blockingStatus();
+        if (_blockingPermission != PermissionState.authorized) {
+          _blockingUnavailable = !ok && _blockingPermission != PermissionState.denied;
+          notifyListeners();
+          return false;
+        }
+      }
+      _blockingUnavailable = false;
+    } else {
+      await stopFocusShield();
+    }
+    _blockingEnabled = on;
+    await _saveBlocking();
+    notifyListeners();
+    return true;
+  }
+
+  Future<void> pickBlockedApps({required String done, required String cancel}) async {
+    final picked = await _native.pickBlockedApps(done: done, cancel: cancel);
+    if (picked != null) {
+      _blocked = picked;
+      notifyListeners();
+    }
+  }
+
+  /// Shields the chosen apps until [until] (the end of the focus session).
+  Future<void> startFocusShield(DateTime until) async {
+    if (!_blockingEnabled || _blockingPermission != PermissionState.authorized || _blocked.isEmpty) return;
+    if (await _native.startShield()) {
+      _shieldUntil = until;
+      await _saveBlocking();
+      notifyListeners();
+    }
+  }
+
+  Future<void> stopFocusShield() async {
+    if (_shieldUntil == null) return;
+    await _native.stopShield();
+    _shieldUntil = null;
+    await _saveBlocking();
+    notifyListeners();
+  }
 
   // ------------------------------------------------------------- calendar
 

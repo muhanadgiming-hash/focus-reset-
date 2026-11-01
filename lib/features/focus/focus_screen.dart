@@ -16,6 +16,7 @@ import '../../core/widgets/controls.dart';
 import '../../core/widgets/sheet.dart';
 import '../../core/widgets/surfaces.dart';
 import '../../data/models/planning_models.dart';
+import '../settings/integrations_screens.dart';
 
 enum FocusPhase { focus, rest }
 
@@ -79,13 +80,17 @@ class _FocusScreenState extends State<FocusScreen> {
     });
     _ticker?.cancel();
     _ticker = Timer.periodic(const Duration(milliseconds: 500), (_) => _tick());
-    IntegrationsScope.read(context).scheduleTimerEnd(_endsAt!, focus: _phase == FocusPhase.focus);
+    final ix = IntegrationsScope.read(context);
+    ix.scheduleTimerEnd(_endsAt!, focus: _phase == FocusPhase.focus);
+    if (_phase == FocusPhase.focus) ix.startFocusShield(_endsAt!);
   }
 
   void _pause() {
     HapticFeedback.lightImpact();
     _ticker?.cancel();
-    IntegrationsScope.read(context).cancelTimerEnd();
+    IntegrationsScope.read(context)
+      ..cancelTimerEnd()
+      ..stopFocusShield();
     setState(() {
       _pausedRemaining = _remaining;
       _endsAt = null;
@@ -94,7 +99,9 @@ class _FocusScreenState extends State<FocusScreen> {
 
   void _reset() {
     _ticker?.cancel();
-    IntegrationsScope.read(context).cancelTimerEnd();
+    IntegrationsScope.read(context)
+      ..cancelTimerEnd()
+      ..stopFocusShield();
     if (_phase == FocusPhase.focus && _sessionStart != null) {
       final spent = DateTime.now().difference(_sessionStart!).inMinutes;
       if (spent >= 1) {
@@ -126,6 +133,7 @@ class _FocusScreenState extends State<FocusScreen> {
 
   void _complete() {
     _ticker?.cancel();
+    IntegrationsScope.read(context).stopFocusShield();
     HapticFeedback.heavyImpact();
     setState(() {
       if (_phase == FocusPhase.focus) {
@@ -180,6 +188,7 @@ class _FocusScreenState extends State<FocusScreen> {
     final total = Duration(minutes: _phaseMinutes).inSeconds;
     final progress = total == 0 ? 0.0 : 1 - _remaining.inSeconds / total;
     final planner = PlannerScope.of(context);
+    final ix = IntegrationsScope.of(context);
     final linked = planner.taskById(_taskId);
     final todaySessions = planner.focusSessions.where((s) => TimeUtils.isSameDay(s.start, DateTime.now())).toList();
     final focusedToday = todaySessions.fold<int>(0, (sum, s) => sum + s.actualMin);
@@ -292,9 +301,14 @@ class _FocusScreenState extends State<FocusScreen> {
           ),
         ),
         AppCard(
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const BlockingScreen())),
           child: Row(
             children: [
-              IconBadge(icon: Icons.block_rounded, color: p.textSecondary, background: p.surfaceAlt),
+              IconBadge(
+                icon: Icons.block_rounded,
+                color: ix.shieldActive ? p.danger : p.textSecondary,
+                background: ix.shieldActive ? p.danger.withValues(alpha: 0.12) : p.surfaceAlt,
+              ),
               const SizedBox(width: Space.md),
               Expanded(
                 child: Column(
@@ -302,12 +316,18 @@ class _FocusScreenState extends State<FocusScreen> {
                   children: [
                     Text(context.tr('focus.blockTitle'), style: context.text.titleSmall),
                     const SizedBox(height: 2),
-                    Text(context.tr('focus.blockBody'), style: context.text.bodySmall),
+                    Text(
+                      context.tr(ix.shieldActive
+                          ? 'block.activeNow'
+                          : (ix.blockingEnabled ? 'block.onSub' : 'focus.blockBody')),
+                      style: context.text.bodySmall,
+                    ),
                   ],
                 ),
               ),
               const SizedBox(width: Space.sm),
-              StatusPill(context.tr('status.notActive')),
+              StatusPill(context.tr(ix.blockingEnabled ? 'common.on' : 'common.off')),
+              const ForwardChevron(),
             ],
           ),
         ),

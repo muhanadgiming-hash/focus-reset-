@@ -75,14 +75,33 @@ class CalendarEvent {
   final String calendarId;
 }
 
+/// What the user chose to block. Apple keeps the actual apps as private
+/// tokens on the device; the app only ever sees these counts.
+class BlockSelection {
+  const BlockSelection({this.apps = 0, this.categories = 0, this.sites = 0});
+
+  final int apps;
+  final int categories;
+  final int sites;
+
+  bool get isEmpty => apps + categories + sites == 0;
+
+  static BlockSelection? fromMap(Object? raw) {
+    if (raw is! Map) return null;
+    int n(Object? v) => v is num ? v.toInt() : 0;
+    return BlockSelection(apps: n(raw['apps']), categories: n(raw['categories']), sites: n(raw['sites']));
+  }
+}
+
 /// Permission states reported by iOS.
-enum PermissionState { unknown, notDetermined, authorized, denied, restricted }
+enum PermissionState { unknown, notDetermined, authorized, denied, restricted, unsupported }
 
 PermissionState _permission(Object? raw) => switch (raw) {
       'authorized' => PermissionState.authorized,
       'notDetermined' => PermissionState.notDetermined,
       'denied' || 'writeOnly' => PermissionState.denied,
       'restricted' => PermissionState.restricted,
+      'unsupported' => PermissionState.unsupported,
       _ => PermissionState.unknown,
     };
 
@@ -101,6 +120,16 @@ abstract interface class NativePlatform {
   Future<bool> requestCalendar();
   Future<List<DeviceCalendar>> calendars();
   Future<List<CalendarEvent>> events(DateTime from, DateTime to, {List<String>? calendarIds});
+
+  // App blocking (Screen Time API, iOS 16+).
+  Future<PermissionState> blockingStatus();
+  Future<bool> requestBlocking();
+
+  /// Opens Apple's app picker. Null when cancelled.
+  Future<BlockSelection?> pickBlockedApps({required String done, required String cancel});
+  Future<BlockSelection> blockedCounts();
+  Future<bool> startShield();
+  Future<bool> stopShield();
 }
 
 class MethodChannelNative implements NativePlatform {
@@ -161,6 +190,29 @@ class MethodChannelNative implements NativePlatform {
           ),
     ];
   }
+
+  @override
+  Future<PermissionState> blockingStatus() async {
+    final raw = await _call<String>('blockingStatus');
+    return raw == null ? PermissionState.unsupported : _permission(raw);
+  }
+
+  @override
+  Future<bool> requestBlocking() async => await _call<bool>('requestBlocking') ?? false;
+
+  @override
+  Future<BlockSelection?> pickBlockedApps({required String done, required String cancel}) async =>
+      BlockSelection.fromMap(await _call<Object>('pickBlockedApps', {'done': done, 'cancel': cancel}));
+
+  @override
+  Future<BlockSelection> blockedCounts() async =>
+      BlockSelection.fromMap(await _call<Object>('blockedCounts')) ?? const BlockSelection();
+
+  @override
+  Future<bool> startShield() async => await _call<bool>('startShield') ?? false;
+
+  @override
+  Future<bool> stopShield() async => await _call<bool>('stopShield') ?? false;
 
   @override
   Future<List<CalendarEvent>> events(DateTime from, DateTime to, {List<String>? calendarIds}) async {

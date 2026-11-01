@@ -56,4 +56,24 @@ sed -i '' 's/TARGETED_DEVICE_FAMILY = "1,2";/TARGETED_DEVICE_FAMILY = 1;/g' "$PB
 sed -i '' -E "/RunnerTests/!s/PRODUCT_BUNDLE_IDENTIFIER = [A-Za-z0-9.-]+;/PRODUCT_BUNDLE_IDENTIFIER = ${BUNDLE_ID};/" "$PBX"
 sed -i '' -E "s/PRODUCT_BUNDLE_IDENTIFIER = [A-Za-z0-9.-]+\.RunnerTests;/PRODUCT_BUNDLE_IDENTIFIER = ${BUNDLE_ID}.RunnerTests;/" "$PBX"
 
+# App blocking (Screen Time API) needs the Family Controls entitlement.
+# Enable only after Apple has approved it for this App ID, otherwise
+# signing fails: set FAMILY_CONTROLS=true in Codemagic.
+if [ "${FAMILY_CONTROLS:-false}" = "true" ]; then
+  cat > ios/Runner/Runner.entitlements <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.developer.family-controls</key>
+  <true/>
+</dict>
+</plist>
+PLIST
+  if ! grep -q "CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements" "$PBX"; then
+    perl -pi -e "s/(PRODUCT_BUNDLE_IDENTIFIER = \Q${BUNDLE_ID}\E;)/\1\n\t\t\t\tCODE_SIGN_ENTITLEMENTS = Runner\/Runner.entitlements;/g" "$PBX"
+  fi
+  echo "Family Controls entitlement enabled"
+fi
+
 echo "iOS project ready — bundle id: ${BUNDLE_ID}"

@@ -12,8 +12,8 @@
 | 1 | هيكل المشروع، نظام التصميم، كل الواجهات والتنقل، اللغتان، التهيئة الأولية | ✅ |
 | 2 | تخزين المهام والعادات والالتزامات + محرك Smart Life Scheduler + اختباراته | ✅ |
 | 3 | Supabase: الحسابات، المزامنة، حذف الحساب | ✅ |
-| 4 | الإشعارات، Apple Calendar، المنطقة الزمنية الدقيقة | ✅ هذه النسخة |
-| 5 | حظر التطبيقات عبر FamilyControls / ManagedSettings / DeviceActivity (بعد موافقة Apple) | ⏳ |
+| 4 | الإشعارات، Apple Calendar، المنطقة الزمنية الدقيقة | ✅ |
+| 5 | حظر التطبيقات عبر FamilyControls / ManagedSettings (بعد موافقة Apple) | ✅ هذه النسخة (يعمل بعد الموافقة) |
 | 6 | التوقيع والرفع إلى TestFlight / App Store Connect | ⏳ (الإعداد جاهز في `codemagic.yaml`) |
 
 ### ما يعمل في المرحلة 2
@@ -32,6 +32,19 @@
 - `test/fixed_blocks_test.dart`، `test/l10n_parity_test.dart`، `test/app_smoke_test.dart`.
 
 ---
+
+## المرحلة 5 — حظر التطبيقات أثناء التركيز
+
+- `packages/focus_native/ios/Classes/FocusBlocking.swift`: FamilyControls (إذن المستخدم + منتقي التطبيقات من Apple) و ManagedSettings (الحجب).
+- يبدأ الحجب مع جلسة التركيز ويُرفع عند انتهائها أو الإيقاف المؤقت أو الإنهاء. إذا أُغلق التطبيق أثناء الجلسة يُرفع الحجب عند فتحه بعد انتهاء الوقت.
+- الاختيارات رموز خاصة من Apple تبقى على الجهاز، ولا يراها التطبيق ولا تُرفع.
+- **بدون موافقة Apple يظهر للمستخدم أن الميزة غير متاحة بعد — لا ادعاء بأنها تعمل** (`test/blocking_test.dart`).
+- لم تُستخدم DeviceActivity (تحتاج Extension منفصلة)؛ البنية جاهزة لإضافتها لاحقًا لرفع الحجب تلقائيًا حتى والتطبيق مغلق.
+
+### للحصول على موافقة Apple (مرة واحدة، يتطلب حساب Apple Developer مدفوع)
+1. developer.apple.com → Identifiers → App ID الخاص بالتطبيق → فعّل **Family Controls**.
+2. قدّم طلب **Family Controls (Distribution)** من: https://developer.apple.com/contact/request/family-controls-distribution
+3. بعد الموافقة: في Codemagic غيّر `FAMILY_CONTROLS` إلى `"true"` (يضيف السكربت ملف الصلاحيات تلقائيًا).
 
 ## المرحلة 4 — الإشعارات والتقويم والمنطقة الزمنية
 

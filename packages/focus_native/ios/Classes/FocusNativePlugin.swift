@@ -160,7 +160,9 @@ public class FocusNativePlugin: NSObject, FlutterPlugin {
       result(events)
 
     default:
-      result(FlutterMethodNotImplemented)
+      if !FocusBlocking.handle(call.method, args, result) {
+        result(FlutterMethodNotImplemented)
+      }
     }
   }
 

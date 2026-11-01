@@ -17,6 +17,8 @@ definitions:
       # Change to your own reverse-domain ID before Phase 6 and register it
       # in developer.apple.com → Identifiers.
       BUNDLE_ID: "com.focusreset.app"
+      # Set to "true" only after Apple approves Family Controls for this App ID.
+      FAMILY_CONTROLS: "false"
 
   scripts:
     - &prepare_ios
@@ -86,6 +88,7 @@ workflows:
         - supabase
       vars:
         BUNDLE_ID: "com.focusreset.app"
+        FAMILY_CONTROLS: "false"
         # Numeric Apple ID of the app from App Store Connect → App Information.
         APP_STORE_APPLE_ID: "0000000000"
     scripts:

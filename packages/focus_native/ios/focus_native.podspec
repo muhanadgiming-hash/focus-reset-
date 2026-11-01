@@ -11,6 +11,8 @@ Pod::Spec.new do |s|
   s.dependency 'Flutter'
   s.platform         = :ios, '12.0'
   s.frameworks       = 'UserNotifications', 'EventKit'
+  # iOS 16+ only; weak-linked so older iOS versions still launch.
+  s.weak_frameworks  = 'FamilyControls', 'ManagedSettings', 'SwiftUI'
   s.swift_version    = '5.0'
   s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES' }
 end

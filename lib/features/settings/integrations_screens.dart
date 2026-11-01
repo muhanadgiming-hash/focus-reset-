@@ -214,3 +214,107 @@ class CalendarScreen extends StatelessWidget {
     );
   }
 }
+
+/// App blocking during focus sessions (Apple Screen Time API).
+class BlockingScreen extends StatelessWidget {
+  const BlockingScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final ix = IntegrationsScope.of(context);
+    final p = context.palette;
+    final unsupported = ix.blockingPermission == PermissionState.unsupported;
+    final denied = ix.blockingPermission == PermissionState.denied;
+    final on = ix.blockingEnabled && ix.blockingPermission == PermissionState.authorized;
+    final sel = ix.blockedSelection;
+
+    return PageScaffold(
+      showBack: true,
+      title: context.tr('focus.blockTitle'),
+      children: [
+        AppCard(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              IconBadge(icon: Icons.shield_moon_outlined, color: p.focus, background: p.focusSoft, size: 44),
+              const SizedBox(width: Space.md),
+              Expanded(child: Text(context.tr('block.intro'), style: context.text.bodyMedium)),
+            ],
+          ),
+        ),
+        if (unsupported)
+          AppCard(color: p.habitSoft, child: Text(context.tr('block.unsupported'), style: context.text.bodySmall))
+        else ...[
+          GroupBox(children: [
+            SwitchRow(
+              label: context.tr('block.enable'),
+              subtitle: context.tr('block.enableSub'),
+              value: on,
+              onChanged: (v) => ix.setBlockingEnabled(v),
+            ),
+          ]),
+          if (ix.blockingUnavailable) ...[
+            const SizedBox(height: Space.md),
+            AppCard(
+              color: p.habitSoft,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(Icons.hourglass_top_rounded, color: p.habit),
+                  const SizedBox(width: Space.md),
+                  Expanded(
+                    child: Text(context.tr('block.needsApproval'), style: context.text.bodySmall?.copyWith(color: p.textPrimary)),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (denied) ...[
+            const SizedBox(height: Space.md),
+            const _DeniedCard(messageKey: 'block.denied'),
+          ],
+          if (on) ...[
+            FieldLabel(context.tr('block.what')),
+            AppCard(
+              onTap: () => ix.pickBlockedApps(done: context.tr('common.done'), cancel: context.tr('common.cancel')),
+              child: Row(
+                children: [
+                  IconBadge(icon: Icons.apps_rounded, color: p.accent, background: p.accentSoft),
+                  const SizedBox(width: Space.md),
+                  Expanded(
+                    child: Text(
+                      sel.isEmpty
+                          ? context.tr('block.chooseApps')
+                          : context.tr('block.summary', {
+                              'a': '${sel.apps}',
+                              'c': '${sel.categories}',
+                              's': '${sel.sites}',
+                            }),
+                      style: context.text.bodyLarge,
+                    ),
+                  ),
+                  const ForwardChevron(),
+                ],
+              ),
+            ),
+            Text(
+              context.tr(ix.shieldActive ? 'block.activeNow' : 'block.howItWorks'),
+              style: context.text.bodySmall,
+            ),
+          ],
+        ],
+        const SizedBox(height: Space.lg),
+        AppCard(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(Icons.verified_user_outlined, color: p.success, size: 20),
+              const SizedBox(width: Space.md),
+              Expanded(child: Text(context.tr('block.privacy'), style: context.text.bodySmall)),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
